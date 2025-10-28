@@ -12,7 +12,7 @@ from typing import Literal
 import logging
 import copy
 
-from src.studyvault.models.item import Item
+from studyvault.models.item import Item
 from studyvault.utils.logger import get_logger
 logger = get_logger(__name__)
 

@@ -1,0 +1,355 @@
+/* ============================================
+   StudyVault - Modern Purple/Blue Dark Theme
+   Clean, Accessible, Professional
+   ============================================ */
+
+/* ============================================
+   GLOBAL STYLES
+   ============================================ */
+* {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+}
+
+QMainWindow, QWidget {
+    background-color: #1e1e2e;
+    color: #cdd6f4;
+}
+
+/* ============================================
+   TABLE WIDGET - Main Content
+   ============================================ */
+QTableWidget {
+    background-color: #181825;
+    color: #cdd6f4;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    gridline-color: #45475a;
+    selection-background-color: #b4befe;
+    selection-color: #1e1e2e;
+    font-size: 13px;
+    alternate-background-color: #1e1e2e;
+}
+
+/* Table Header */
+QHeaderView::section {
+    background-color: #181825;
+    color: #f5e0dc;
+    padding: 12px 8px;
+    border: none;
+    border-bottom: 2px solid #b4befe;
+    border-right: 1px solid #313244;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+QHeaderView::section:hover {
+    background-color: #313244;
+}
+
+/* Table Items */
+QTableWidget::item {
+    padding: 10px 8px;
+    border: none;
+}
+
+QTableWidget::item:hover {
+    background-color: #313244;
+}
+
+/* FIXED: Selection works on both odd and even rows */
+QTableWidget::item:selected {
+    background-color: #b4befe !important;
+    color: #1e1e2e !important;
+}
+
+QTableWidget::item:alternate:selected {
+    background-color: #b4befe !important;
+    color: #1e1e2e !important;
+}
+
+/* ============================================
+   BUTTONS - Modern Accent Colors
+   ============================================ */
+QPushButton {
+    background-color: #89b4fa;
+    color: #1e1e2e;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 6px;
+    font-weight: 600;
+    min-height: 36px;
+    min-width: 90px;
+}
+
+QPushButton:hover {
+    background-color: #b4befe;
+}
+
+QPushButton:pressed {
+    background-color: #74c7ec;
+}
+
+QPushButton:disabled {
+    background-color: #45475a;
+    color: #6c7086;
+}
+
+/* Secondary Buttons */
+QPushButton#delete_button, QPushButton#undo_button {
+    background-color: #313244;
+    color: #cdd6f4;
+}
+
+QPushButton#delete_button:hover, QPushButton#undo_button:hover {
+    background-color: #45475a;
+}
+
+/* Danger Button (Delete) */
+QPushButton#delete_button:pressed {
+    background-color: #f38ba8;
+    color: #1e1e2e;
+}
+
+/* ============================================
+   INPUT FIELDS
+   ============================================ */
+QLineEdit {
+    background-color: #181825;
+    color: #cdd6f4;
+    border: 2px solid #313244;
+    border-radius: 6px;
+    padding: 10px 12px;
+    selection-background-color: #89b4fa;
+    selection-color: #1e1e2e;
+    min-height: 38px;
+}
+
+QLineEdit:focus {
+    border-color: #89b4fa;
+    background-color: #1e1e2e;
+}
+
+QLineEdit:hover {
+    border-color: #45475a;
+}
+
+QLineEdit::placeholder {
+    color: #6c7086;
+    font-style: italic;
+}
+
+/* ============================================
+   LABELS
+   ============================================ */
+QLabel {
+    color: #cdd6f4;
+    background-color: transparent;
+}
+
+/* ============================================
+   DIALOGS
+   ============================================ */
+QDialog {
+    background-color: #1e1e2e;
+    color: #cdd6f4;
+    border: 1px solid #313244;
+    border-radius: 8px;
+}
+
+QDialog QLabel {
+    font-weight: 500;
+    min-width: 100px;
+}
+
+/* Dialog Buttons */
+QDialogButtonBox {
+    background-color: transparent;
+    border-top: 1px solid #313244;
+    padding-top: 16px;
+    margin-top: 16px;
+}
+
+QDialogButtonBox QPushButton {
+    min-width: 100px;
+    padding: 8px 20px;
+}
+
+/* Save/OK Button */
+QDialogButtonBox QPushButton[text="Save"],
+QDialogButtonBox QPushButton[text="OK"] {
+    background-color: #89b4fa;
+    color: #1e1e2e;
+}
+
+/* Cancel Button */
+QDialogButtonBox QPushButton[text="Cancel"] {
+    background-color: #313244;
+    color: #cdd6f4;
+}
+
+/* ============================================
+   SLIDERS
+   ============================================ */
+QSlider {
+    min-height: 40px;
+}
+
+QSlider::groove:horizontal {
+    background: #313244;
+    height: 6px;
+    border-radius: 3px;
+}
+
+QSlider::handle:horizontal {
+    background: #89b4fa;
+    width: 20px;
+    height: 20px;
+    margin: -8px 0;
+    border-radius: 10px;
+    border: 2px solid #74c7ec;
+}
+
+QSlider::handle:horizontal:hover {
+    background: #b4befe;
+}
+
+QSlider::handle:horizontal:pressed {
+    background: #74c7ec;
+}
+
+QSlider::sub-page:horizontal {
+    background: #cba6f7;
+    border-radius: 3px;
+}
+
+/* ============================================
+   DATE PICKER
+   ============================================ */
+QDateEdit {
+    background-color: #181825;
+    color: #cdd6f4;
+    border: 2px solid #313244;
+    border-radius: 6px;
+    padding: 8px 12px;
+    min-height: 38px;
+}
+
+QDateEdit:focus {
+    border-color: #89b4fa;
+}
+
+QDateEdit::drop-down {
+    background-color: #89b4fa;
+    border: none;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+    width: 30px;
+}
+
+QDateEdit::down-arrow {
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid #1e1e2e;
+}
+
+/* Calendar Widget */
+QCalendarWidget {
+    background-color: #1e1e2e;
+    border: 1px solid #313244;
+    border-radius: 6px;
+}
+
+QCalendarWidget QToolButton {
+    background-color: transparent;
+    color: #cdd6f4;
+    border-radius: 4px;
+    padding: 5px;
+}
+
+QCalendarWidget QToolButton:hover {
+    background-color: #313244;
+}
+
+QCalendarWidget QMenu {
+    background-color: #181825;
+    border: 1px solid #313244;
+}
+
+QCalendarWidget QSpinBox {
+    background-color: #181825;
+    color: #cdd6f4;
+    border: 1px solid #313244;
+}
+
+QCalendarWidget QTableView {
+    background-color: #1e1e2e;
+    alternate-background-color: #181825;
+    selection-background-color: #b4befe;
+    color: #cdd6f4;
+}
+
+/* ============================================
+   MESSAGE BOXES
+   ============================================ */
+QMessageBox {
+    background-color: #1e1e2e;
+    color: #cdd6f4;
+}
+
+QMessageBox QLabel {
+    color: #cdd6f4;
+    padding: 10px;
+}
+
+/* ============================================
+   SCROLL BARS
+   ============================================ */
+QScrollBar:vertical {
+    background: #1e1e2e;
+    width: 12px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:vertical {
+    background: #45475a;
+    border-radius: 6px;
+    min-height: 30px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #6c7086;
+}
+
+QScrollBar:horizontal {
+    background: #1e1e2e;
+    height: 12px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:horizontal {
+    background: #45475a;
+    border-radius: 6px;
+    min-width: 30px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background: #6c7086;
+}
+
+QScrollBar::add-line, QScrollBar::sub-line {
+    background: none;
+    border: none;
+}
+
+/* ============================================
+   TOOLTIPS
+   ============================================ */
+QToolTip {
+    background-color: #313244;
+    color: #f5e0dc;
+    border: 1px solid #89b4fa;
+    padding: 8px 12px;
+    border-radius: 6px;
+}

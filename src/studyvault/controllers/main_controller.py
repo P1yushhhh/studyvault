@@ -13,9 +13,11 @@ from datetime import datetime, timedelta
 from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QLineEdit, QPushButton, QLabel,
     QMessageBox, QDialog, QDialogButtonBox, QGridLayout, QVBoxLayout,
-    QHBoxLayout, QSlider, QFileDialog, QDateEdit
+    QHBoxLayout, QSlider, QFileDialog, QDateEdit, QSizePolicy, QSpacerItem,
+    QWidget  # Add this
 )
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QDate
+
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QDate, QUrl
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 
@@ -76,6 +78,9 @@ class MainController:
         self.search_field = search_field
         self.task_count_label = task_count_label
         
+        # Store parent window reference for dialogs
+        self.view = items_table.window()
+        
         # Buttons (store for potential enable/disable)
         self.add_button = add_button
         self.edit_button = edit_button
@@ -120,16 +125,26 @@ class MainController:
         self.items_table.setHorizontalHeaderLabels([
             "Title", "Category", "Type", "Rating", "Tags"
         ])
-        
         # Enable sorting
         self.items_table.setSortingEnabled(True)
-        
-        # Set column widths
+        # ISSUE #5 FIX: Make table stretch to full width
+        header = self.items_table.horizontalHeader()
+        header.setStretchLastSection(True)  # Last column stretches to fill space
+    
+        # FIX: Enable text wrapping for long filenames
+        self.items_table.setWordWrap(True)
+    
+        # FIX: Auto-resize rows to fit wrapped content
+        vertical_header = self.items_table.verticalHeader()
+        vertical_header.setSectionResizeMode(vertical_header.ResizeMode.ResizeToContents)
+    
+        # Set column widths for first 4 columns
         self.items_table.setColumnWidth(0, 200)  # Title
         self.items_table.setColumnWidth(1, 150)  # Category
         self.items_table.setColumnWidth(2, 100)  # Type
         self.items_table.setColumnWidth(3, 80)   # Rating
-        self.items_table.setColumnWidth(4, 200)  # Tags
+        # Tags column (index 4) will stretch automatically
+
     
     def _connect_signals(self) -> None:
         """Connect button clicks to handler methods."""
@@ -145,6 +160,30 @@ class MainController:
         
         # Search on Enter key
         self.search_field.returnPressed.connect(self.handle_search)
+    
+    # ===== ISSUE #1 FIX: Proper Message Box Helper =====
+    
+    def _show_message(self, title: str, message: str, icon=QMessageBox.Icon.Information) -> None:
+        """
+        Show a properly sized message box that displays full text without truncation.
+        
+        Args:
+            title: Dialog window title
+            message: Message text to display
+            icon: QMessageBox icon type (Information, Warning, Critical)
+        """
+        msg_box = QMessageBox(self.view)
+        msg_box.setWindowTitle(title)
+        msg_box.setText(message)
+        msg_box.setIcon(icon)
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        
+        # Fix truncation: Add horizontal spacer to force minimum width
+        spacer = QSpacerItem(400, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
+        layout = msg_box.layout()
+        layout.addItem(spacer, layout.rowCount(), 0, 1, layout.columnCount())
+        
+        msg_box.exec()
     
     # ===== CRUD Operations =====
     
@@ -168,60 +207,108 @@ class MainController:
         self._animate_fade_in(self.items_table, duration=400, start_opacity=0.5)
         
         logger.info(f"Item added: {new_item.title}")
-        self._show_alert("Success", "Item added successfully!")
+        self._show_message("Success", "Item added successfully!", QMessageBox.Icon.Information)
     
     def handle_edit(self) -> None:
         """
         Handle Edit button click.
-        
         Opens dialog to edit selected item's properties.
         """
         # Get selected item
         selected_item = self._get_selected_item()
         if not selected_item:
-            self._show_alert("No Selection", "Please select an item to edit.")
+            self._show_message("No Selection", "Please select an item to edit.", QMessageBox.Icon.Warning)
             return
-        
+    
+        # ISSUE #4 FIX: Store original state for undo
+        original_title = selected_item.title
+        original_category = selected_item.category
+        original_rating = selected_item.rating
+        original_tags = selected_item.tags.copy()
+    
         # Create edit dialog
-        dialog = QDialog()
+        dialog = QDialog(self.view)
         dialog.setWindowTitle("Edit Item")
-        dialog.resize(400, 300)
-        
+        # Better dialog sizing
+        dialog.resize(600, 350)
+        dialog.setMinimumSize(550, 320)
+    
         # Add scale animation on show
         dialog.showEvent = lambda event: self._animate_scale(dialog, duration=200)
+    
+        # Create main layout
+        main_layout = QVBoxLayout()
+        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(25, 25, 25, 25)
         
-        # Create form layout
-        layout = QGridLayout()
-        layout.setSpacing(10)
+        # Form section using grid layout
+        form_layout = QGridLayout()
+        form_layout.setSpacing(15)
+        form_layout.setColumnStretch(1, 1)  # Make input column stretch
         
         # Title field
         title_label = QLabel("Title:")
         title_field = QLineEdit(selected_item.title)
-        layout.addWidget(title_label, 0, 0)
-        layout.addWidget(title_field, 0, 1)
-        
+        title_field.setMinimumHeight(35)
+        form_layout.addWidget(title_label, 0, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        form_layout.addWidget(title_field, 0, 1)
+    
         # Category field
         category_label = QLabel("Category:")
         category_field = QLineEdit(selected_item.category)
-        layout.addWidget(category_label, 1, 0)
-        layout.addWidget(category_field, 1, 1)
-        
+        category_field.setMinimumHeight(35)
+        form_layout.addWidget(category_label, 1, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        form_layout.addWidget(category_field, 1, 1)
+    
         # Tags field
-        tags_label = QLabel("Tags (comma separated):")
+        tags_label = QLabel("Tags:")
         tags_field = QLineEdit(", ".join(selected_item.tags))
-        layout.addWidget(tags_label, 2, 0)
-        layout.addWidget(tags_field, 2, 1)
-        
-        # Rating slider
+        tags_field.setMinimumHeight(35)
+        tags_field.setPlaceholderText("Comma separated tags")
+        form_layout.addWidget(tags_label, 2, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        form_layout.addWidget(tags_field, 2, 1)
+    
+        # Rating section - FIXED layout
         rating_label = QLabel("Rating:")
+    
+        # Create container widget for slider + value label
+        rating_container = QWidget()
+        rating_layout = QHBoxLayout(rating_container)
+        rating_layout.setContentsMargins(0, 0, 0, 0)
+        rating_layout.setSpacing(15)
+    
+        # Slider
         rating_slider = QSlider(Qt.Orientation.Horizontal)
         rating_slider.setMinimum(1)
         rating_slider.setMaximum(5)
         rating_slider.setValue(selected_item.rating)
         rating_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         rating_slider.setTickInterval(1)
-        layout.addWidget(rating_label, 3, 0)
-        layout.addWidget(rating_slider, 3, 1)
+        rating_slider.setMinimumWidth(200)
+    
+        # Value display label - FIXED positioning
+        rating_value_label = QLabel(self._format_rating(selected_item.rating))
+        rating_value_label.setMinimumWidth(130)
+        rating_value_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        
+        # Update label when slider moves
+        rating_slider.valueChanged.connect(
+            lambda value: rating_value_label.setText(self._format_rating(value))
+        )
+    
+        # Add slider and label to container
+        rating_layout.addWidget(rating_slider, stretch=1)
+        rating_layout.addWidget(rating_value_label, stretch=0)
+    
+        # Add to form
+        form_layout.addWidget(rating_label, 3, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        form_layout.addWidget(rating_container, 3, 1)
+    
+        # Add form to main layout
+        main_layout.addLayout(form_layout)
+    
+        # Add spacer to push buttons to bottom
+        main_layout.addStretch(1)
         
         # Dialog buttons
         button_box = QDialogButtonBox(
@@ -229,13 +316,13 @@ class MainController:
         )
         button_box.accepted.connect(dialog.accept)
         button_box.rejected.connect(dialog.reject)
-        layout.addWidget(button_box, 4, 0, 1, 2)
-        
-        dialog.setLayout(layout)
+        main_layout.addWidget(button_box)
+    
+        dialog.setLayout(main_layout)
         
         # Show dialog and handle result
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            # Update item
+            # Update item through service to create memento
             selected_item.title = title_field.text()
             selected_item.category = category_field.text()
             selected_item.set_rating(rating_slider.value())
@@ -246,18 +333,23 @@ class MainController:
                 tag_clean = tag.strip()
                 if tag_clean:
                     selected_item.add_tag(tag_clean)
-            
-            # Refresh table
-            self._refresh_table()
-            
-            logger.info(f"Item edited: {selected_item.title}")
-            self._show_alert("Success", "Item updated successfully!")
+                    # Create memento for undo (mimics update flow)
+                    self.library_service.update_item(selected_item)
+                    # Refresh table
+                    # self._refresh_table()
+                    logger.info(f"Item edited: {selected_item.title}")
+                    self._show_message("Success", "Item updated successfully!", QMessageBox.Icon.Information)
+
+    def _format_rating(self, value: int) -> str:
+        """Format rating value with stars."""
+        stars = "★" * value + "☆" * (5 - value)
+        return f"{stars} ({value}/5)"
     
     def handle_delete(self) -> None:
         """Handle Delete button click."""
         selected_item = self._get_selected_item()
         if not selected_item:
-            self._show_alert("No Selection", "Please select an item to delete.")
+            self._show_message("No Selection", "Please select an item to delete.", QMessageBox.Icon.Warning)
             return
         
         # Delete from service (creates memento for undo)
@@ -267,12 +359,12 @@ class MainController:
         self._refresh_table()
         
         logger.info(f"Item deleted: {selected_item.title}")
-        self._show_alert("Success", "Item deleted!")
+        self._show_message("Success", "Item deleted successfully!", QMessageBox.Icon.Information)
     
     def handle_undo(self) -> None:
         """Handle Undo button click."""
         if not self.library_service.can_undo():
-            self._show_alert("Nothing to Undo", "No actions to undo.")
+            self._show_message("Nothing to Undo", "No actions to undo.", QMessageBox.Icon.Information)
             return
         
         # Undo last operation
@@ -282,7 +374,7 @@ class MainController:
         self._refresh_table()
         
         logger.info("Undo completed")
-        self._show_alert("Success", "Undo completed!")
+        self._show_message("Success", "Undo completed successfully!", QMessageBox.Icon.Information)
     
     # ===== Search Operations =====
     
@@ -320,7 +412,7 @@ class MainController:
         self._animate_fade_in(self.items_table, duration=300, start_opacity=0.3)
         
         logger.info(f"Search found {len(results)} results")
-        self._show_alert("Search Results", f"Found {len(results)} matching items")
+        self._show_message("Search Results", f"Found {len(results)} matching items", QMessageBox.Icon.Information)
     
     # ===== Import Operations =====
     
@@ -332,7 +424,7 @@ class MainController:
         """
         # Show directory picker
         directory = QFileDialog.getExistingDirectory(
-            None,
+            self.view,
             "Select Folder to Import",
             str(Path.home())
         )
@@ -354,9 +446,10 @@ class MainController:
         self._refresh_table()
         
         logger.info(f"Import complete: {len(imported_items)} items")
-        self._show_alert(
+        self._show_message(
             "Import Complete",
-            f"Imported {len(imported_items)} items from folder!"
+            f"Successfully imported {len(imported_items)} items from folder!",
+            QMessageBox.Icon.Information
         )
     
     # ===== Task Operations =====
@@ -369,43 +462,65 @@ class MainController:
         """
         selected_item = self._get_selected_item()
         if not selected_item:
-            self._show_alert("No Selection", "Please select an item to create a task for.")
+            self._show_message("No Selection", "Please select an item to create a task for.", QMessageBox.Icon.Warning)
             return
         
         # Create task dialog
-        dialog = QDialog()
+        dialog = QDialog(self.view)
         dialog.setWindowTitle("Add Task")
-        dialog.resize(400, 250)
+        
+        # ISSUE #7 FIX: Larger dialog size
+        dialog.resize(700, 450)
+        dialog.setMinimumSize(650, 400)
         
         # Add scale animation
         dialog.showEvent = lambda event: self._animate_scale(dialog, duration=200)
         
         layout = QGridLayout()
-        layout.setSpacing(10)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
         
         # Description field
         desc_label = QLabel("Description:")
         desc_field = QLineEdit()
-        layout.addWidget(desc_label, 0, 0)
+        desc_field.setMinimumHeight(35)
+        desc_field.setPlaceholderText("Enter task description")
+        layout.addWidget(desc_label, 0, 0, Qt.AlignmentFlag.AlignRight)
         layout.addWidget(desc_field, 0, 1)
         
-        # Priority slider
-        priority_label = QLabel("Priority (1-10):")
+        # ISSUE #3 FIX: Priority slider with visible value
+        priority_label = QLabel("Priority:")
         priority_slider = QSlider(Qt.Orientation.Horizontal)
         priority_slider.setMinimum(1)
         priority_slider.setMaximum(10)
         priority_slider.setValue(5)
         priority_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         priority_slider.setTickInterval(1)
-        layout.addWidget(priority_label, 1, 0)
-        layout.addWidget(priority_slider, 1, 1)
+        
+        # Priority value label
+        priority_value_label = QLabel(f"Priority: {5}/10")
+        priority_value_label.setMinimumWidth(100)
+        
+        # Update label when slider moves
+        priority_slider.valueChanged.connect(
+            lambda value: priority_value_label.setText(f"Priority: {value}/10")
+        )
+        
+        # Create horizontal layout for slider + value
+        priority_layout = QHBoxLayout()
+        priority_layout.addWidget(priority_slider, stretch=1)
+        priority_layout.addWidget(priority_value_label)
+        
+        layout.addWidget(priority_label, 1, 0, Qt.AlignmentFlag.AlignRight)
+        layout.addLayout(priority_layout, 1, 1)
         
         # Deadline picker
         deadline_label = QLabel("Deadline:")
         deadline_picker = QDateEdit()
         deadline_picker.setDate(QDate.currentDate().addDays(7))
         deadline_picker.setCalendarPopup(True)
-        layout.addWidget(deadline_label, 2, 0)
+        deadline_picker.setMinimumHeight(35)
+        layout.addWidget(deadline_label, 2, 0, Qt.AlignmentFlag.AlignRight)
         layout.addWidget(deadline_picker, 2, 1)
         
         # Dialog buttons
@@ -415,6 +530,9 @@ class MainController:
         button_box.accepted.connect(dialog.accept)
         button_box.rejected.connect(dialog.reject)
         layout.addWidget(button_box, 3, 0, 1, 2)
+        
+        # Add vertical stretch
+        layout.setRowStretch(3, 1)
         
         dialog.setLayout(layout)
         
@@ -439,7 +557,7 @@ class MainController:
             self._update_task_count()
             
             logger.info(f"Task created: priority={task.priority}")
-            self._show_alert("Success", f"Task created with priority {task.priority}")
+            self._show_message("Success", f"Task created with priority {task.priority}!", QMessageBox.Icon.Information)
     
     def handle_view_next_task(self) -> None:
         """
@@ -450,7 +568,7 @@ class MainController:
         next_task = self.library_service.get_next_task()
         
         if not next_task:
-            self._show_alert("No Tasks", "Task queue is empty!")
+            self._show_message("No Tasks", "Task queue is empty!", QMessageBox.Icon.Information)
             return
         
         # Find the item for this task
@@ -460,12 +578,12 @@ class MainController:
         # Show task details
         message = (
             f"Item: {item_title}\n"
-            f"Priority: {next_task.priority}\n"
+            f"Priority: {next_task.priority}/10\n"
             f"Deadline: {next_task.deadline.date()}\n"
             f"Description: {next_task.description}"
         )
         
-        self._show_alert("Next Task", message, title_prefix="Highest Priority Task:")
+        self._show_message("Highest Priority Task", message, QMessageBox.Icon.Information)
         
         # Update task count
         self._update_task_count()
@@ -487,17 +605,17 @@ class MainController:
         """
         selected_item = self._get_selected_item()
         if not selected_item:
-            self._show_alert("No Selection", "Please select an item to preview.")
+            self._show_message("No Selection", "Please select an item to preview.", QMessageBox.Icon.Warning)
             return
         
         file_path = selected_item.file_path
         if not file_path:
-            self._show_alert("No File", "This item has no associated file.")
+            self._show_message("No File", "This item has no associated file.", QMessageBox.Icon.Warning)
             return
         
         path = Path(file_path)
         if not path.exists():
-            self._show_alert("File Not Found", f"File does not exist:\n{file_path}")
+            self._show_message("File Not Found", f"File does not exist:\n{file_path}", QMessageBox.Icon.Critical)
             return
         
         item_type = selected_item.type
@@ -505,9 +623,10 @@ class MainController:
         if item_type in ["audio", "video"]:
             self._preview_media(path, item_type)
         else:
-            self._show_alert(
+            self._show_message(
                 "Preview",
-                f"Preview for type '{item_type}' not yet implemented.\n\nFile: {file_path}"
+                f"Preview for type '{item_type}' not yet implemented.\n\nFile: {file_path}",
+                QMessageBox.Icon.Information
             )
     
     def _preview_media(self, file_path: Path, media_type: str) -> None:
@@ -525,7 +644,7 @@ class MainController:
             self.media_player.setAudioOutput(audio_output)
             
             # Create preview window
-            dialog = QDialog()
+            dialog = QDialog(self.view)
             dialog.setWindowTitle(f"Media Preview: {file_path.name}")
             dialog.resize(640, 480)
             
@@ -561,8 +680,8 @@ class MainController:
             layout.addLayout(controls_layout)
             dialog.setLayout(layout)
             
-            # Set source and play
-            self.media_player.setSource(file_path.as_uri())
+            # ISSUE #6 FIX: Correct QUrl usage for media source
+            self.media_player.setSource(QUrl.fromLocalFile(str(file_path)))
             self.media_player.play()
             
             # Cleanup on close
@@ -574,7 +693,7 @@ class MainController:
         
         except Exception as e:
             logger.error(f"Media preview error: {e}", exc_info=True)
-            self._show_alert("Media Error", f"Error playing media file:\n{str(e)}")
+            self._show_message("Media Error", f"Error playing media file:\n{str(e)}", QMessageBox.Icon.Critical)
     
     # ===== Data Persistence =====
     
@@ -673,21 +792,6 @@ class MainController:
         
         return None
     
-    def _show_alert(self, title: str, message: str, title_prefix: str = "") -> None:
-        """
-        Show alert dialog.
-        
-        Args:
-            title: Dialog title
-            message: Message text
-            title_prefix: Optional prefix for title
-        """
-        msg_box = QMessageBox()
-        msg_box.setWindowTitle(title)
-        msg_box.setText(title_prefix + "\n" + message if title_prefix else message)
-        msg_box.setIcon(QMessageBox.Icon.Information)
-        msg_box.exec()
-    
     # ===== Animations =====
     
     def _animate_fade_in(
@@ -719,5 +823,4 @@ class MainController:
             widget: QWidget to animate
             duration: Animation duration in milliseconds
         """
-
         self._animate_fade_in(widget, duration=duration, start_opacity=0.8)
