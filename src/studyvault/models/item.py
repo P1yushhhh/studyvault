@@ -5,6 +5,7 @@ Represents a study material item (note, PDF, audio, video) with metadata includi
 title, category, tags, rating, and file paths. Implements validation and serialization
 for persistence.
 """
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
@@ -34,7 +35,7 @@ class Item:
     Example:
         >>> item = Item(title="DSP Lecture 1", category="Digital Signal Processing", type="video")
         >>> item.add_tag("signals")
-        >>> item.rating = 5
+        >>> item.set_rating(5)
     """
     
     # Required fields (positional arguments)
@@ -63,7 +64,7 @@ class Item:
         self._validate_title()
         self._validate_category()
         self._validate_type()
-        self._validate_rating()
+        self._validate_and_clamp_rating()
         
         logger.debug(f"Created Item: {self.id} - {self.title}")
     
@@ -95,20 +96,18 @@ class Item:
             )
         self.type = type_lower
     
-    def _validate_rating(self) -> None:
-        """Validate rating is 0-5 (0 = unrated)."""
+    def _validate_and_clamp_rating(self) -> None:
+        """Validate rating is 0-5 and clamp if needed (matches Java behavior)."""
         if not isinstance(self.rating, int):
             raise TypeError(f"Rating must be int, got {type(self.rating)}")
-        if not (0 <= self.rating <= 5):
-            raise ValueError(f"Rating must be 0-5, got {self.rating}")
+        
+        # Clamp to 1-5 if non-zero (matches Java: Math.max(1, Math.min(5, rating)))
+        if self.rating > 0:
+            self.rating = max(1, min(5, self.rating))
+        elif self.rating < 0:
+            self.rating = 0
     
-    @property
-    def rating(self) -> int:
-        """Get rating value."""
-        return self._rating
-    
-    @rating.setter
-    def rating(self, value: int) -> None:
+    def set_rating(self, value: int) -> None:
         """
         Set rating with automatic clamping to 1-5 range.
         
@@ -116,7 +115,7 @@ class Item:
             value: Rating value (will be clamped to 1-5 if non-zero)
         
         Example:
-            >>> item.rating = 10  # Clamped to 5
+            >>> item.set_rating(10)  # Clamped to 5
             >>> item.rating
             5
         """
@@ -124,12 +123,12 @@ class Item:
             raise TypeError(f"Rating must be int, got {type(value)}")
         
         # Clamp to 1-5 if non-zero (matches Java logic)
-        if value > 0:
-            self._rating = max(1, min(5, value))
+        if value == 0:
+            self.rating = 0
         else:
-            self._rating = 0
+            self.rating = max(1, min(5, value))
         
-        logger.debug(f"Item {self.id}: Rating set to {self._rating}")
+        logger.debug(f"Item {self.id}: Rating set to {self.rating}")
     
     def add_tag(self, tag: str) -> None:
         """
