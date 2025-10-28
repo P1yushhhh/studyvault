@@ -9,9 +9,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 from functools import total_ordering
-import logging
+from studyvault.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+
+logger = get_logger(__name__)
 
 
 @total_ordering

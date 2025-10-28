@@ -10,10 +10,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
 from uuid import uuid4
-import logging
+from studyvault.utils.logger import get_logger
 
-# Setup logger
-logger = logging.getLogger(__name__)
+
+logger = get_logger(__name__)
 
 
 @dataclass
