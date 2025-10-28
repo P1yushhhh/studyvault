@@ -4,7 +4,7 @@ import pytest
 from datetime import datetime
 from src.studyvault.models.item import Item
 from src.studyvault.models.task import Task
-
+from src.studyvault.models.memento import Memento
 
 class TestItemRating:
     """Test rating functionality."""
@@ -183,3 +183,120 @@ class TestTaskSerialization:
         assert restored.item_id == original.item_id
         assert restored.priority == original.priority
         assert restored.description == original.description
+
+class TestMementoCreation:
+    """Test Memento initialization and deep copy."""
+    
+    def test_create_memento_with_item(self):
+        """Test creating memento saves item snapshot."""
+        item = Item("Original Title", "Category", "pdf")
+        item.add_tag("test-tag")
+        item.set_rating(4)
+        
+        memento = Memento(item, "EDIT")
+        
+        assert memento.saved_item.title == "Original Title"
+        assert memento.saved_item.rating == 4
+        assert "test-tag" in memento.saved_item.tags
+        assert memento.operation_type == "EDIT"
+    
+    def test_memento_creates_deep_copy(self):
+        """Test that memento creates independent copy of item."""
+        item = Item("Original", "Category", "pdf")
+        item.add_tag("original-tag")
+        
+        memento = Memento(item, "DELETE")
+        
+        # Modify original item
+        item.title = "Modified"
+        item.add_tag("new-tag")
+        item.set_rating(5)
+        
+        # Memento should still have original values
+        assert memento.saved_item.title == "Original"
+        assert "original-tag" in memento.saved_item.tags
+        assert "new-tag" not in memento.saved_item.tags
+        assert memento.saved_item.rating == 0
+    
+    def test_memento_has_timestamp(self):
+        """Test that memento records creation time."""
+        item = Item("Test", "Cat", "pdf")
+        memento = Memento(item, "EDIT")
+        
+        assert isinstance(memento.timestamp, datetime)
+        assert (datetime.now() - memento.timestamp).total_seconds() < 1
+
+
+class TestMementoOperationTypes:
+    """Test operation type validation."""
+    
+    def test_memento_with_delete_operation(self):
+        """Test memento with DELETE operation."""
+        item = Item("Test", "Cat", "pdf")
+        memento = Memento(item, "DELETE")
+        
+        assert memento.operation_type == "DELETE"
+    
+    def test_memento_with_edit_operation(self):
+        """Test memento with EDIT operation."""
+        item = Item("Test", "Cat", "pdf")
+        memento = Memento(item, "EDIT")
+        
+        assert memento.operation_type == "EDIT"
+
+
+class TestMementoSerialization:
+    """Test to_dict/from_dict for persistence."""
+    
+    def test_memento_to_dict(self):
+        """Test converting memento to dictionary."""
+        item = Item("Test Item", "Category", "video")
+        item.add_tag("tag1")
+        memento = Memento(item, "EDIT")
+        
+        data = memento.to_dict()
+        
+        assert data['operation_type'] == "EDIT"
+        assert 'saved_item' in data
+        assert data['saved_item']['title'] == "Test Item"
+        assert 'timestamp' in data
+    
+    def test_memento_from_dict(self):
+        """Test creating memento from dictionary."""
+        data = {
+            'saved_item': {
+                'id': 'item-123',
+                'title': 'Saved',
+                'category': 'Cat',
+                'type': 'pdf',
+                'tags': ['tag1'],
+                'rating': 3,
+                'created_at': datetime.now().isoformat(),
+                'media_url': None,
+                'file_path': None,
+            },
+            'operation_type': 'DELETE',
+            'timestamp': '2025-10-29T01:00:00',
+        }
+        
+        memento = Memento.from_dict(data)
+        
+        assert memento.operation_type == 'DELETE'
+        assert memento.saved_item.title == 'Saved'
+        assert memento.saved_item.rating == 3
+    
+    def test_memento_round_trip_serialization(self):
+        """Test memento -> dict -> memento preserves data."""
+        item = Item("Original", "Category", "audio")
+        item.add_tag("music")
+        item.set_rating(5)
+        
+        original_memento = Memento(item, "EDIT")
+        
+        data = original_memento.to_dict()
+        restored_memento = Memento.from_dict(data)
+        
+        assert restored_memento.operation_type == original_memento.operation_type
+        assert restored_memento.saved_item.title == original_memento.saved_item.title
+        assert restored_memento.saved_item.rating == original_memento.saved_item.rating
+        assert restored_memento.saved_item.tags == original_memento.saved_item.tags
