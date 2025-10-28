@@ -3,6 +3,7 @@
 import pytest
 from datetime import datetime
 from src.studyvault.models.item import Item
+from src.studyvault.models.task import Task
 
 
 class TestItemRating:
@@ -80,3 +81,105 @@ class TestItemSerialization:
         assert restored.rating == original.rating
         assert restored.tags == original.tags
 
+class TestTaskCreation:
+    """Test Task initialization and validation."""
+    
+    def test_create_task_with_valid_data(self):
+        """Test creating task with valid parameters."""
+        deadline = datetime(2025, 12, 31, 23, 59)
+        task = Task(item_id="item-123", priority=5, deadline=deadline, description="Study DSP")
+        
+        assert task.item_id == "item-123"
+        assert task.priority == 5
+        assert task.deadline == deadline
+        assert task.description == "Study DSP"
+    
+    def test_create_task_validates_empty_item_id(self):
+        """Test that empty item_id raises ValueError."""
+        with pytest.raises(ValueError, match="item_id cannot be empty"):
+            Task(item_id="", priority=5, deadline=datetime.now(), description="Test")
+    
+    def test_create_task_validates_negative_priority(self):
+        """Test that negative priority raises ValueError."""
+        with pytest.raises(ValueError, match="priority must be >= 1"):
+            Task(item_id="item-123", priority=-1, deadline=datetime.now(), description="Test")
+    
+    def test_create_task_validates_empty_description(self):
+        """Test that empty description raises ValueError."""
+        with pytest.raises(ValueError, match="description cannot be empty"):
+            Task(item_id="item-123", priority=5, deadline=datetime.now(), description="   ")
+
+
+class TestTaskComparison:
+    """Test Task sorting (Comparable implementation)."""
+    
+    def test_higher_priority_comes_first(self):
+        """Test that higher priority task is 'less than' for max-heap."""
+        task_high = Task("item-1", 10, datetime.now(), "Urgent")
+        task_low = Task("item-2", 2, datetime.now(), "Not urgent")
+        
+        # Higher priority should be "less than" for max-heap behavior
+        assert task_high < task_low
+    
+    def test_sorting_tasks_by_priority(self):
+        """Test that sorting puts highest priority first."""
+        tasks = [
+            Task("item-1", 3, datetime.now(), "Low"),
+            Task("item-2", 8, datetime.now(), "High"),
+            Task("item-3", 5, datetime.now(), "Medium"),
+        ]
+        
+        sorted_tasks = sorted(tasks)
+        
+        assert sorted_tasks[0].priority == 8  # Highest first
+        assert sorted_tasks[1].priority == 5
+        assert sorted_tasks[2].priority == 3
+    
+    def test_equal_priority_tasks(self):
+        """Test equality comparison."""
+        task1 = Task("item-1", 5, datetime.now(), "Task 1")
+        task2 = Task("item-2", 5, datetime.now(), "Task 2")
+        
+        assert task1 == task2
+
+
+class TestTaskSerialization:
+    """Test to_dict/from_dict for persistence."""
+    
+    def test_to_dict(self):
+        """Test converting task to dictionary."""
+        deadline = datetime(2025, 12, 31, 23, 59)
+        task = Task("item-123", 7, deadline, "Complete assignment")
+        
+        data = task.to_dict()
+        
+        assert data['item_id'] == "item-123"
+        assert data['priority'] == 7
+        assert data['description'] == "Complete assignment"
+        assert '2025-12-31' in data['deadline']
+    
+    def test_from_dict(self):
+        """Test creating task from dictionary."""
+        data = {
+            'item_id': 'item-456',
+            'priority': 9,
+            'deadline': '2025-11-30T12:00:00',
+            'description': 'Review notes',
+        }
+        
+        task = Task.from_dict(data)
+        
+        assert task.item_id == 'item-456'
+        assert task.priority == 9
+        assert task.description == 'Review notes'
+    
+    def test_round_trip_serialization(self):
+        """Test task -> dict -> task preserves data."""
+        original = Task("item-789", 6, datetime(2025, 10, 15, 10, 30), "Study graphs")
+        
+        data = original.to_dict()
+        restored = Task.from_dict(data)
+        
+        assert restored.item_id == original.item_id
+        assert restored.priority == original.priority
+        assert restored.description == original.description
