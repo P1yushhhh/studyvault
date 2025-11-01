@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QLineEdit, QPushButton, QLabel,
     QMessageBox, QDialog, QDialogButtonBox, QGridLayout, QVBoxLayout,
     QHBoxLayout, QSlider, QFileDialog, QDateEdit, QSizePolicy, QSpacerItem,
-    QWidget  
+    QWidget, QRadioButton  
 )
 
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QDate, QUrl
@@ -192,26 +192,30 @@ class MainController:
     # ===== CRUD Operations =====
     
     def handle_add(self) -> None:
-        """
-        Handle Add button click.
-        
-        Creates a test item for now. In full app, would open dialog for user input.
-        """
-        # Create sample item (TODO: Replace with dialog)
-        new_item = Item("Sample Note", "Study", "note")
-        new_item.set_rating(4)
-        
-        # Add to service
-        self.library_service.add_item(new_item)
-        
-        # Update table
-        self._refresh_table()
-        
-        # Animate
-        self._animate_fade_in(self.items_table, duration=400, start_opacity=0.5)
-        
-        logger.info(f"Item added: {new_item.title}")
-        self._show_message("Success", "Item added successfully!", QMessageBox.Icon.Information)
+        """Open dialog to add a new item."""
+        dialog = self.AddItemDialog(self.view)  # Pass parent window
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            item_data = dialog.get_item_data()
+            if item_data:
+                new_item = Item(
+                    title=item_data["title"],
+                    category=item_data["category"],
+                    type=item_data["type"]
+                )
+                # Optional fields
+                new_item.file_path = item_data.get("file_path")
+                new_item.url = item_data.get("url")
+                new_item.set_rating(item_data.get("rating", 0))
+    
+                # Add tags
+                for tag in item_data.get("tags", []):
+                    new_item.add_tag(tag)
+    
+                # Save and refresh
+                self.library_service.add_item(new_item)
+                self._refresh_table()
+                self._animate_fade_in(self.items_table, duration=300, start_opacity=0.5)
+                self._show_message("Success", f"Item '{new_item.title}' added successfully.")
     
     def handle_edit(self) -> None:
         """
@@ -918,3 +922,152 @@ class MainController:
             duration: Animation duration in milliseconds
         """
         self._animate_fade_in(widget, duration=duration, start_opacity=0.8)
+
+    class AddItemDialog(QDialog):
+        """Dialog to add a new library item."""
+    
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self.setWindowTitle("Add New Item")
+            self.setMinimumWidth(450)
+    
+            layout = QVBoxLayout(self)
+    
+            # Title
+            self.title_field = QLineEdit()
+            self.title_field.setPlaceholderText("Enter title")
+            layout.addWidget(QLabel("Title*"))
+            layout.addWidget(self.title_field)
+    
+            # Category
+            self.category_field = QLineEdit()
+            self.category_field.setPlaceholderText("Enter category (optional)")
+            layout.addWidget(QLabel("Category"))
+            layout.addWidget(self.category_field)
+    
+            # Type Selection
+            layout.addWidget(QLabel("Type*"))
+            self.type_group = QWidget()
+            type_layout = QHBoxLayout(self.type_group)
+            self.types = {
+                "note": QRadioButton("Note"),
+                "pdf": QRadioButton("PDF"),
+                "docx": QRadioButton("DOCX"),
+                "ppt": QRadioButton("PPT"),
+                "audio": QRadioButton("Audio"),
+                "video": QRadioButton("Video"),
+                "url": QRadioButton("URL")
+            }
+            for t in self.types.values():
+                type_layout.addWidget(t)
+            self.types["note"].setChecked(True)
+            layout.addWidget(self.type_group)
+    
+            # File Picker
+            self.file_field = QLineEdit()
+            self.file_button = QPushButton("Browse")
+            file_layout = QHBoxLayout()
+            file_layout.addWidget(self.file_field)
+            file_layout.addWidget(self.file_button)
+            layout.addWidget(QLabel("File Path"))
+            layout.addLayout(file_layout)
+            self.file_button.clicked.connect(self.pick_file)
+    
+            # URL Field
+            self.url_field = QLineEdit()
+            self.url_field.setPlaceholderText("Enter URL (if type is URL)")
+            layout.addWidget(QLabel("URL"))
+            layout.addWidget(self.url_field)
+    
+            # Tags
+            self.tags_field = QLineEdit()
+            self.tags_field.setPlaceholderText("e.g. math, algorithms, ai")
+            layout.addWidget(QLabel("Tags (comma-separated)"))
+            layout.addWidget(self.tags_field)
+    
+            # Rating slider (0–5)
+            layout.addWidget(QLabel("Rating (0 = Unrated)"))
+            slider_layout = QHBoxLayout()
+            self.rating_slider = QSlider(Qt.Orientation.Horizontal)
+            self.rating_slider.setRange(0, 5)
+            self.rating_slider.setValue(0)
+            self.rating_label = QLabel("0")
+            self.rating_slider.valueChanged.connect(
+                lambda v: self.rating_label.setText(str(v))
+            )
+            slider_layout.addWidget(self.rating_slider)
+            slider_layout.addWidget(self.rating_label)
+            layout.addLayout(slider_layout)
+    
+            # Buttons
+            buttons = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok |
+                QDialogButtonBox.StandardButton.Cancel
+            )
+            buttons.accepted.connect(self.accept)
+            buttons.rejected.connect(self.reject)
+            layout.addWidget(buttons)
+    
+            # Enable/disable logic
+            for _, btn in self.types.items():
+                btn.toggled.connect(self.update_field_states)
+    
+            self.update_field_states()  # Initial setup
+    
+        def pick_file(self):
+            file_path, _ = QFileDialog.getOpenFileName(self, "Select File")
+            if file_path:
+                self.file_field.setText(file_path)
+    
+        def update_field_states(self):
+            selected = self.get_selected_type()
+            is_url_type = selected == "url"
+            is_file_type = selected in {"pdf", "docx", "ppt", "audio", "video"}
+    
+            # Enable/Disable fields accordingly
+            self.url_field.setEnabled(is_url_type)
+            self.file_field.setEnabled(is_file_type)
+            self.file_button.setEnabled(is_file_type)
+    
+            # Only clear fields if switching away
+            if is_url_type and self.file_field.text():
+                self.file_field.clear()
+            if is_file_type and self.url_field.text():
+                self.url_field.clear()
+    
+        def get_selected_type(self) -> str:
+            for type_key, btn in self.types.items():
+                if btn.isChecked():
+                    return type_key
+            return "note"
+    
+        def get_item_data(self) -> Optional[dict]:
+            title = self.title_field.text().strip()
+            if not title:
+                QMessageBox.warning(self, "Error", "Title is required.")
+                return None
+    
+            data = {
+                "title": title,
+                "category": self.category_field.text().strip() or "Uncategorized",
+                "type": self.get_selected_type(),
+                "tags": [t.strip() for t in self.tags_field.text().split(",") if t.strip()],
+                "rating": self.rating_slider.value()
+            }
+    
+            if data["type"] == "url":
+                url = self.url_field.text().strip()
+                if not url:
+                    QMessageBox.warning(self, "Error", "URL is required for URL type.")
+                    return None
+                data["url"] = url
+            else:
+                file = self.file_field.text().strip()
+                if data["type"] in {"pdf", "docx", "ppt", "audio", "video"} and not file:
+                    QMessageBox.warning(self, "Error", "File is required for this type.")
+                    return None
+                data["file_path"] = file if file else None
+    
+            return data
+
+    
