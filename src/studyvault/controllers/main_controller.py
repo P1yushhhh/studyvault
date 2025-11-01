@@ -63,7 +63,8 @@ class MainController:
         import_button: QPushButton,
         add_task_button: QPushButton,
         view_task_button: QPushButton,
-        preview_button: QPushButton
+        preview_button: QPushButton,
+        clear_search_button: QPushButton
     ):
         """
         Initialize main controller with UI widgets.
@@ -88,6 +89,7 @@ class MainController:
         self.delete_button = delete_button
         self.undo_button = undo_button
         self.search_button = search_button
+        self.clear_search_button = clear_search_button
         self.import_button = import_button
         self.add_task_button = add_task_button
         self.view_task_button = view_task_button
@@ -154,6 +156,7 @@ class MainController:
         self.delete_button.clicked.connect(self.handle_delete)
         self.undo_button.clicked.connect(self.handle_undo)
         self.search_button.clicked.connect(self.handle_search)
+        self.clear_search_button.clicked.connect(self.handle_clear_search)
         self.import_button.clicked.connect(self.handle_import)
         self.add_task_button.clicked.connect(self.handle_add_task)
         self.view_task_button.clicked.connect(self.handle_view_next_task)
@@ -456,6 +459,16 @@ class MainController:
         
         logger.info(f"Search found {len(results)} results")
         self._show_message("Search Results", f"Found {len(results)} matching items", QMessageBox.Icon.Information)
+    
+    def handle_clear_search(self) -> None:
+        """
+        Reset search bar and reload the full item list.
+        """
+        self.search_field.clear()          # Clear text input
+        self.filtered_items = None         # Remove any active filter if used
+        self._refresh_table()              # Reload full dataset
+        logger.info("Search cleared, displaying all items.")
+
     
     # ===== Import Operations =====
     

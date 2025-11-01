@@ -90,6 +90,12 @@ class MainWindow(QMainWindow):
         self.import_button = QPushButton("Import Folder")
         self.import_button.setMinimumWidth(120)
         search_layout.addWidget(self.import_button)
+
+        # Clear Search button
+        self.clear_search_button = QPushButton("Clear")
+        self.clear_search_button.setMinimumWidth(80)
+        search_layout.addWidget(self.clear_search_button)
+        
         
         parent_layout.addLayout(search_layout)
     
@@ -211,6 +217,7 @@ class MainWindow(QMainWindow):
             delete_button=self.delete_button,
             undo_button=self.undo_button,
             search_button=self.search_button,
+            clear_search_button=self.clear_search_button,
             import_button=self.import_button,
             add_task_button=self.add_task_button,
             view_task_button=self.view_task_button,
