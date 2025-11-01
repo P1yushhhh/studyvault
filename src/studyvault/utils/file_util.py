@@ -24,7 +24,7 @@ class FileUtil:
     - Video: .mp4
     """
     
-    SUPPORTED_EXTENSIONS = {'.txt', '.md', '.pdf', '.mp3', '.mp4'}
+    SUPPORTED_EXTENSIONS = {'.txt', '.md', '.pdf', '.mp3', '.mp4', '.docx', '.pptx'}
     
     @staticmethod
     def scan_directory(directory: Path, processed_paths: Set[str]) -> List[Path]:
@@ -144,7 +144,10 @@ class FileUtil:
             '.pdf': 'pdf',
             '.mp3': 'audio',
             '.mp4': 'video',
-        }
+            '.docx': 'docx',
+            '.pptx': 'pptx',
+            }
+
         
         return type_mapping.get(ext, 'unknown')
     

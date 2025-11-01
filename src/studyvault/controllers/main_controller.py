@@ -9,6 +9,7 @@ Implements animations, dialogs, and error handling.
 from typing import Optional, List
 from pathlib import Path
 from datetime import datetime, timedelta
+import os, platform, subprocess
 
 from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QLineEdit, QPushButton, QLabel,
@@ -600,97 +601,107 @@ class MainController:
     def handle_preview(self) -> None:
         """
         Handle Preview button click.
-        
-        Opens media player for audio/video files.
+        Opens media player for audio/video OR system default viewer for other files.
         """
         selected_item = self._get_selected_item()
         if not selected_item:
             self._show_message("No Selection", "Please select an item to preview.", QMessageBox.Icon.Warning)
             return
-        
+    
         file_path = selected_item.file_path
         if not file_path:
             self._show_message("No File", "This item has no associated file.", QMessageBox.Icon.Warning)
             return
-        
+    
         path = Path(file_path)
         if not path.exists():
             self._show_message("File Not Found", f"File does not exist:\n{file_path}", QMessageBox.Icon.Critical)
             return
-        
+    
         item_type = selected_item.type
-        
+    
+        # CASE 1: Audio/Video - use built-in media player
         if item_type in ["audio", "video"]:
             self._preview_media(path, item_type)
-        else:
-            self._show_message(
-                "Preview",
-                f"Preview for type '{item_type}' not yet implemented.\n\nFile: {file_path}",
-                QMessageBox.Icon.Information
-            )
+            return
+    
+        # CASE 2: All other types → open in system default application
+        self._open_in_system_viewer(path)
+    
+    def _open_in_system_viewer(self, path: Path) -> None:
+        """
+        Open file with the system's default application.
+        Supports Windows, macOS, Linux.
+        """
+        try:
+            system = platform.system()
+            if system == "Windows":
+                os.startfile(str(path))
+            elif system == "Darwin":  # macOS
+                subprocess.run(["open", str(path)], check=False)
+            else:  # Linux and others
+                subprocess.run(["xdg-open", str(path)], check=False)
+    
+            logger.info(f"Opened in system viewer: {path}")
+    
+        except Exception as e:
+            logger.error(f"Failed to open system viewer for {path}: {e}", exc_info=True)
+            self._show_message("Preview Error", f"Could not open file:\n{str(e)}", QMessageBox.Icon.Critical)
     
     def _preview_media(self, file_path: Path, media_type: str) -> None:
         """
         Open media player for audio/video preview.
-        
-        Args:
-            file_path: Path to media file
-            media_type: "audio" or "video"
         """
         try:
-            # Create media player
             self.media_player = QMediaPlayer()
             audio_output = QAudioOutput()
             self.media_player.setAudioOutput(audio_output)
-            
-            # Create preview window
+    
             dialog = QDialog(self.view)
             dialog.setWindowTitle(f"Media Preview: {file_path.name}")
             dialog.resize(640, 480)
-            
+    
             layout = QVBoxLayout()
-            
-            # Add video widget if video
+    
+            # Video player
             if media_type == "video":
                 video_widget = QVideoWidget()
                 self.media_player.setVideoOutput(video_widget)
                 layout.addWidget(video_widget)
             else:
-                # Audio: just show label
+                # Audio-only → show label
                 audio_label = QLabel(f"🎵 Playing Audio: {file_path.name}")
-                audio_label.setStyleSheet("font-size: 16px;")
                 audio_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                audio_label.setStyleSheet("font-size: 16px;")
                 layout.addWidget(audio_label)
-            
-            # Control buttons
+    
+            # Controls
             controls_layout = QHBoxLayout()
-            
-            play_button = QPushButton("▶ Play")
-            pause_button = QPushButton("⏸ Pause")
-            stop_button = QPushButton("⏹ Stop")
-            
-            play_button.clicked.connect(self.media_player.play)
-            pause_button.clicked.connect(self.media_player.pause)
-            stop_button.clicked.connect(lambda: [self.media_player.stop(), dialog.close()])
-            
-            controls_layout.addWidget(play_button)
-            controls_layout.addWidget(pause_button)
-            controls_layout.addWidget(stop_button)
-            
+            play_btn = QPushButton("▶ Play")
+            pause_btn = QPushButton("⏸ Pause")
+            stop_btn = QPushButton("⏹ Stop")
+    
+            play_btn.clicked.connect(self.media_player.play)
+            pause_btn.clicked.connect(self.media_player.pause)
+            stop_btn.clicked.connect(lambda: [self.media_player.stop(), dialog.close()])
+    
+            controls_layout.addWidget(play_btn)
+            controls_layout.addWidget(pause_btn)
+            controls_layout.addWidget(stop_btn)
             layout.addLayout(controls_layout)
+    
             dialog.setLayout(layout)
-            
-            # ISSUE #6 FIX: Correct QUrl usage for media source
+    
+            # Play media
             self.media_player.setSource(QUrl.fromLocalFile(str(file_path)))
             self.media_player.play()
-            
-            # Cleanup on close
-            dialog.finished.connect(lambda: self.media_player.stop())
-            
+    
+            # Stop on dialog close
+            dialog.finished.connect(lambda _: self.media_player.stop())
             dialog.exec()
-            
+    
             logger.info(f"Media preview opened: {file_path.name}")
-        
+    
         except Exception as e:
             logger.error(f"Media preview error: {e}", exc_info=True)
             self._show_message("Media Error", f"Error playing media file:\n{str(e)}", QMessageBox.Icon.Critical)
