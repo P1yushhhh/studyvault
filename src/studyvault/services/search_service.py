@@ -111,71 +111,42 @@ class SearchService:
     
     def search(self, query: str, item_map: Dict[str, Item]) -> List[str]:
         """
-        Search for items matching query, ranked by tag frequency.
-        
-        PERFORMANCE DECISION: PriorityQueue for ranking search results
-        
-        Using heapq (PriorityQueue) because:
-        1. Automatically maintains items sorted by frequency (max-heap behavior)
-        2. O(log n) for insertion - acceptable for search result set
-        3. O(1) for retrieving highest frequency item
-        
-        Alternative: Sort ArrayList afterwards would be O(n log n)
-        PriorityQueue is more efficient for incremental result retrieval.
-        
-        Args:
-            query: Search query string (single keyword)
-            item_map: Dictionary mapping item IDs to Item objects
-        
-        Returns:
-            List of item IDs, ranked by relevance (highest frequency first)
-        
-        Time Complexity: O(1) lookup + O(M log M) ranking where M=matched items
-        
-        Example:
-            >>> item_map = {item.id: item for item in items}
-            >>> results = service.search("algorithms", item_map)
-            >>> for item_id in results:
-            ...     print(item_map[item_id].title)
+        Perform partial and tag-based search (case-insensitive, multi-word).
+        Supports fuzzy-like matching across title, category, type, and tags.
         """
-        query_lower = query.lower().strip()
-        
-        if not query_lower:
-            logger.warning("Empty search query")
+        query = query.lower().strip()
+        if not query:
             return []
-        
-        # O(1) lookup in HashMap
-        matched_ids = self.keyword_to_items.get(query_lower, set())
-        
-        if not matched_ids:
-            logger.debug(f"No matches for query: '{query}'")
-            return []
-        
-        logger.debug(f"Found {len(matched_ids)} matches for: '{query}'")
-        
-        # Rank results by frequency (max-heap)
-        ranked_results: List[ItemRank] = []
-        
-        for item_id in matched_ids:
-            item = item_map.get(item_id)
-            if item:
-                # Calculate frequency score
-                freq = self._calculate_frequency(item, query_lower)
-                ranked_results.append(ItemRank(item_id, freq))
-        
-        # Use heapify for O(n) heap construction, then extract sorted
-        heapq.heapify(ranked_results)
-        
-        # Extract results in order (highest frequency first)
-        results = []
-        while ranked_results:
-            item_rank = heapq.heappop(ranked_results)
-            results.append(item_rank.item_id)
-        
-        logger.debug(f"Returning {len(results)} ranked results")
-        
-        return results
     
+        query_terms = query.split()  # support multi-word search
+        matched_items = set()
+    
+        for item in item_map.values():
+            # Combine searchable fields
+            searchable_text = " ".join([
+                item.title.lower(),
+                item.category.lower(),
+                item.type.lower(),
+                " ".join(tag.lower() for tag in item.tags)
+            ])
+    
+            # Check if all query words appear anywhere in the combined text
+            if all(term in searchable_text for term in query_terms):
+                matched_items.add(item.id)
+    
+        # Rank by tag frequency if available
+        ranked_results = []
+        for item_id in matched_items:
+            item = item_map[item_id]
+            freq = self._calculate_frequency(item, query)
+            ranked_results.append(ItemRank(item_id, freq))
+    
+        # Sort by frequency descending, fallback to title for tie-breaking
+        ranked_results.sort(key=lambda r: (-r.frequency, item_map[r.item_id].title))
+    
+        return [r.item_id for r in ranked_results]
+
+
     def _calculate_frequency(self, item: Item, query: str) -> int:
         """
         Calculate frequency score for ranking.
