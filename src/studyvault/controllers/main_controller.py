@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QLineEdit, QPushButton, QLabel,
     QMessageBox, QDialog, QDialogButtonBox, QGridLayout, QVBoxLayout,
     QHBoxLayout, QSlider, QFileDialog, QDateEdit, QSizePolicy, QSpacerItem,
-    QWidget  # Add this
+    QWidget  
 )
 
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QDate, QUrl
@@ -347,35 +347,77 @@ class MainController:
         return f"{stars} ({value}/5)"
     
     def handle_delete(self) -> None:
-        """Handle Delete button click."""
-        selected_item = self._get_selected_item()
-        if not selected_item:
-            self._show_message("No Selection", "Please select an item to delete.", QMessageBox.Icon.Warning)
-            return
-        
-        # Delete from service (creates memento for undo)
-        self.library_service.delete_item(selected_item)
-        
-        # Refresh table
-        self._refresh_table()
-        
-        logger.info(f"Item deleted: {selected_item.title}")
-        self._show_message("Success", "Item deleted successfully!", QMessageBox.Icon.Information)
+        """
+        Handle Delete button click.
+        Supports deleting multiple selected items with
+        a properly aligned confirmation dialog.
+        """
+        selected_items = self._get_selected_items()
     
+        if not selected_items:
+            self._show_message("No Selection", "Please select at least one item to delete.",
+                               QMessageBox.Icon.Warning)
+            return
+    
+        # Confirmation logic
+        if len(selected_items) == 1:
+            item_name = selected_items[0].title
+            if not self._confirm_dialog("Confirm Delete", f"Are you sure you want to delete '{item_name}'?"):
+                return
+        else:
+            if not self._confirm_dialog("Confirm Delete",
+                                        f"Are you sure you want to delete {len(selected_items)} items?"):
+                return
+    
+        # Perform deletion
+        for item in selected_items:
+            self.library_service.delete_item(item)
+    
+        # Refresh UI
+        self._refresh_table()
+    
+        logger.info(f"Deleted {len(selected_items)} item(s)")
+        self._show_message("Success", f"Deleted {len(selected_items)} item(s) successfully.",
+                           QMessageBox.Icon.Information)
+
+    
+    def _confirm_dialog(self, title: str, message: str) -> bool:
+        """
+        Custom confirmation dialog (compact and aligned).
+        Returns True if user clicks 'Yes'.
+        """
+        box = QMessageBox(self.view)
+        box.setWindowTitle(title)
+        box.setText(message)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+    
+        # Make text wrap nicely instead of stretching the box
+        box.setTextFormat(Qt.TextFormat.PlainText)   # Safe formatting
+        box.setStyleSheet("QLabel{ min-width: 250px; }")  # Enough width for readability
+    
+        # Remove large spacers (we don't want the dialog to stretch too much)
+        # No need for massive QSizePolicy spacer here.
+    
+        # Execute and return result
+        return box.exec() == QMessageBox.StandardButton.Yes
+
+   
     def handle_undo(self) -> None:
         """Handle Undo button click."""
         if not self.library_service.can_undo():
             self._show_message("Nothing to Undo", "No actions to undo.", QMessageBox.Icon.Information)
             return
-        
-        # Undo last operation
+    
+        # Perform undo (restores last delete/edit/add)
         self.library_service.undo()
-        
-        # Refresh table
+    
+        # Refresh UI
         self._refresh_table()
-        
+    
         logger.info("Undo completed")
-        self._show_message("Success", "Undo completed successfully!", QMessageBox.Icon.Information)
+        self._show_message("Undo", "Last action has been undone.", QMessageBox.Icon.Information)
+
     
     # ===== Search Operations =====
     
@@ -601,32 +643,38 @@ class MainController:
     def handle_preview(self) -> None:
         """
         Handle Preview button click.
-        Opens media player for audio/video OR system default viewer for other files.
+        Supports multi-select:
+        - Audio/Video files → played one at a time in the built-in player.
+        - Other files (PDF, DOCX, PPTX, TXT, etc.) → opened in system's default application.
         """
-        selected_item = self._get_selected_item()
-        if not selected_item:
-            self._show_message("No Selection", "Please select an item to preview.", QMessageBox.Icon.Warning)
+        selected_items = self._get_selected_items()
+        if not selected_items:
+            self._show_message("No Selection", "Please select at least one item to preview.",
+                               QMessageBox.Icon.Warning)
             return
     
-        file_path = selected_item.file_path
-        if not file_path:
-            self._show_message("No File", "This item has no associated file.", QMessageBox.Icon.Warning)
-            return
+        for item in selected_items:
+            file_path = item.file_path
+            if not file_path:
+                self._show_message("No File", f"Item '{item.title}' has no associated file.",
+                                   QMessageBox.Icon.Warning)
+                continue
     
-        path = Path(file_path)
-        if not path.exists():
-            self._show_message("File Not Found", f"File does not exist:\n{file_path}", QMessageBox.Icon.Critical)
-            return
+            path = Path(file_path)
+            if not path.exists():
+                self._show_message("File Not Found", f"File does not exist:\n{file_path}",
+                                   QMessageBox.Icon.Critical)
+                continue
     
-        item_type = selected_item.type
+            item_type = item.type
     
-        # CASE 1: Audio/Video - use built-in media player
-        if item_type in ["audio", "video"]:
-            self._preview_media(path, item_type)
-            return
-    
-        # CASE 2: All other types → open in system default application
-        self._open_in_system_viewer(path)
+            # Audio/Video → use internal media preview
+            if item_type in ["audio", "video"]:
+                self._preview_media(path, item_type)
+            else:
+                # Other types: open via system default viewer
+                self._open_in_system_viewer(path)
+
     
     def _open_in_system_viewer(self, path: Path) -> None:
         """
@@ -802,6 +850,28 @@ class MainController:
             return title_item.data(Qt.ItemDataRole.UserRole)
         
         return None
+    
+    def _get_selected_items(self) -> List[Item]:
+        """
+        Return all selected Item objects from the table.
+        Works when multi-select is enabled.
+        """
+        selected_items = []
+    
+        # Get selected row indices
+        rows = set(index.row() for index in self.items_table.selectedIndexes())
+        if not rows:
+            return []
+    
+        for row in rows:
+            title_item = self.items_table.item(row, 0)
+            if title_item:
+                item = title_item.data(Qt.ItemDataRole.UserRole)
+                if item:
+                    selected_items.append(item)
+    
+        return selected_items
+
     
     # ===== Animations =====
     

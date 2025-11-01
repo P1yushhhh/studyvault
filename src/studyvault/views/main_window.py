@@ -113,7 +113,7 @@ class MainWindow(QMainWindow):
         # Items table
         self.items_table = QTableWidget()
         self.items_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.items_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.items_table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.items_table.setAlternatingRowColors(True)
         
         # Table will be configured by controller (columns, headers)
