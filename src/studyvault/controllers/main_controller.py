@@ -163,27 +163,27 @@ class MainController:
     
     # ===== ISSUE #1 FIX: Proper Message Box Helper =====
     
-    def _show_message(self, title: str, message: str, icon=QMessageBox.Icon.Information) -> None:
-        """
-        Show a properly sized message box that displays full text without truncation.
-        
-        Args:
-            title: Dialog window title
-            message: Message text to display
-            icon: QMessageBox icon type (Information, Warning, Critical)
-        """
-        msg_box = QMessageBox(self.view)
-        msg_box.setWindowTitle(title)
-        msg_box.setText(message)
-        msg_box.setIcon(icon)
-        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
-        
-        # Fix truncation: Add horizontal spacer to force minimum width
-        spacer = QSpacerItem(400, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
-        layout = msg_box.layout()
-        layout.addItem(spacer, layout.rowCount(), 0, 1, layout.columnCount())
-        
-        msg_box.exec()
+    def _show_message(self, title: str, message: str,
+                  icon=QMessageBox.Icon.Information) -> None:
+        box = QMessageBox(self.view)
+        box.setWindowTitle(title)
+        box.setIcon(icon)
+        box.setTextFormat(Qt.TextFormat.PlainText)  # avoid rich-text sizing quirks
+        box.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        box.setText(message)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+    
+        # Force wrapping on the internal labels. Keep a sane width window.
+        box.setStyleSheet("""
+            QLabel#qt_msgbox_label, QLabel#qt_msgbox_informativelabel {
+                qproperty-wordWrap: true;
+                min-width: 320px;         /* small, prevents clipping */
+                max-width: 520px;         /* prevents over-wide dialogs */
+            }
+        """)
+    
+        # No spacers, no manual resize
+        box.exec()
     
     # ===== CRUD Operations =====
     
