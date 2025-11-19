@@ -7,10 +7,11 @@ Programmatic equivalent of main-view.fxml from JavaFX.
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
-    QLineEdit, QPushButton, QLabel, QTableWidgetItem
+    QLineEdit, QPushButton, QLabel
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
+import logging
 
 from studyvault.controllers.main_controller import MainController
 from studyvault.utils.logger import get_logger
@@ -55,7 +56,8 @@ class MainWindow(QMainWindow):
         # Initialize controller (connects widgets to logic)
         self._init_controller()
         
-        logger.info("MainWindow created")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("MainWindow created")
     
     def _create_top_section(self, parent_layout: QVBoxLayout) -> None:
         """
@@ -95,7 +97,6 @@ class MainWindow(QMainWindow):
         self.clear_search_button = QPushButton("Clear")
         self.clear_search_button.setMinimumWidth(80)
         search_layout.addWidget(self.clear_search_button)
-        
         
         parent_layout.addLayout(search_layout)
     
@@ -227,7 +228,8 @@ class MainWindow(QMainWindow):
         # Initialize controller (sets up table, connects signals)
         self.controller.initialize()
         
-        logger.debug("MainController initialized with widgets")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("MainController initialized with widgets")
     
     def apply_stylesheet(self, stylesheet_path: str = None) -> None:
         """
@@ -240,6 +242,9 @@ class MainWindow(QMainWindow):
             try:
                 with open(stylesheet_path, 'r') as f:
                     self.setStyleSheet(f.read())
-                logger.info(f"Stylesheet loaded: {stylesheet_path}")
+                
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(f"Stylesheet loaded: {stylesheet_path}")
             except Exception as e:
-                logger.warning(f"Could not load stylesheet: {e}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Could not load stylesheet: {e}")

@@ -7,11 +7,12 @@ and preventing duplicate processing. Uses DFS traversal with deduplication via s
 
 from pathlib import Path
 from typing import List, Set
+import logging
+import stat as stat_module
+
 from studyvault.utils.logger import get_logger
 
-
 logger = get_logger(__name__)
-
 
 class FileUtil:
     """
@@ -19,35 +20,37 @@ class FileUtil:
     
     Supports recursive directory scanning with deduplication for file types:
     - Text files: .txt, .md
-    - Documents: .pdf
+    - Documents: .pdf, .docx, .pptx
     - Audio: .mp3
     - Video: .mp4
     """
     
     SUPPORTED_EXTENSIONS = {'.txt', '.md', '.pdf', '.mp3', '.mp4', '.docx', '.pptx'}
     
+    # Class constant - created once instead of every function call
+    TYPE_MAPPING = {
+        '.txt': 'note',
+        '.md': 'note',
+        '.pdf': 'pdf',
+        '.mp3': 'audio',
+        '.mp4': 'video',
+        '.docx': 'docx',
+        '.pptx': 'ppt',  # Fixed: maps to 'ppt' not 'pptx'
+    }
+    
     @staticmethod
     def scan_directory(directory: Path, processed_paths: Set[str]) -> List[Path]:
         """
         Recursively scan directory for supported files (DFS traversal).
         
-        Uses depth-first search to traverse subdirectories. Deduplicates files
-        using the processed_paths set (O(1) lookups). Handles permission errors
-        and invalid paths gracefully.
+        Optimized: Check extension first, resolve only if needed
         
         Args:
             directory: Path object of directory to scan
-            processed_paths: Set of already-processed absolute paths (for deduplication)
+            processed_paths: Set of already-processed absolute paths (mutated in-place)
         
         Returns:
             List of Path objects for found files
-        
-        Example:
-            >>> from pathlib import Path
-            >>> processed = set()
-            >>> files = FileUtil.scan_directory(Path("./sample_data"), processed)
-            >>> len(files)
-            42
         
         Complexity: O(N) where N = total files in tree
         """
@@ -55,11 +58,13 @@ class FileUtil:
         
         # Validation
         if directory is None or not directory.exists():
-            logger.warning(f"Directory does not exist: {directory}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Directory does not exist: {directory}")
             return found_files
         
         if not directory.is_dir():
-            logger.warning(f"Path is not a directory: {directory}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Path is not a directory: {directory}")
             return found_files
         
         try:
@@ -72,21 +77,35 @@ class FileUtil:
                             FileUtil.scan_directory(item, processed_paths)
                         )
                     elif item.is_file():
-                        # Check if file is supported and not already processed
-                        path_str = str(item.resolve())
-                        ext = FileUtil.get_file_extension(item)
+                        # Optimized order: check extension FIRST (cheap filter)
+                        ext = item.suffix.lower() if item.suffix else ""
                         
-                        if ext in FileUtil.SUPPORTED_EXTENSIONS and path_str not in processed_paths:
-                            found_files.append(item)
-                            processed_paths.add(path_str)
-                            logger.debug(f"Found file: {item.name}")
+                        if ext not in FileUtil.SUPPORTED_EXTENSIONS:
+                            continue  # Skip unsupported files early
+                        
+                        # Now resolve only for supported files
+                        path_str = str(item.resolve())
+                        
+                        if path_str in processed_paths:
+                            continue  # Skip duplicates
+                        
+                        # Add to results
+                        found_files.append(item)
+                        processed_paths.add(path_str)
+                        
+                        # Batch logging: only log every 100 files
+                        if len(found_files) % 100 == 0:
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(f"Found {len(found_files)} files so far...")
                 
                 except PermissionError:
-                    logger.warning(f"Permission denied: {item}")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(f"Permission denied: {item}")
                     continue
         
         except PermissionError:
-            logger.error(f"Cannot access directory: {directory}")
+            if logger.isEnabledFor(logging.WARNING):  # ✅ Consistent severity
+                logger.warning(f"Cannot access directory: {directory}")
         
         return found_files
     
@@ -95,61 +114,31 @@ class FileUtil:
         """
         Get file extension in lowercase (includes dot).
         
+        Consider using `path.suffix.lower()` directly instead of this function.
+        
         Args:
             file_path: Path object of the file
         
         Returns:
             Extension string (e.g., ".pdf") or empty string if none
-        
-        Example:
-            >>> FileUtil.get_file_extension(Path("notes.PDF"))
-            '.pdf'
-            >>> FileUtil.get_file_extension(Path("README"))
-            ''
         """
-        if not file_path.suffix:
-            return ""
-        
-        return file_path.suffix.lower()
+        return file_path.suffix.lower() if file_path.suffix else ""
     
     @staticmethod
     def determine_type(file_path: Path) -> str:
         """
         Determine item type based on file extension.
         
-        Maps extensions to StudyVault item types:
-        - .txt, .md → "note"
-        - .pdf → "pdf"
-        - .mp3 → "audio"
-        - .mp4 → "video"
+        Optimized: Uses class constant instead of rebuilding dict
         
         Args:
             file_path: Path object of the file
         
         Returns:
-            Type string ("note", "pdf", "audio", "video", or "unknown")
-        
-        Example:
-            >>> FileUtil.determine_type(Path("lecture.mp4"))
-            'video'
-            >>> FileUtil.determine_type(Path("notes.txt"))
-            'note'
+            Type string ("note", "pdf", "audio", "video", "docx", "ppt", or "unknown")
         """
-        ext = FileUtil.get_file_extension(file_path)
-        
-        # Map extension to type
-        type_mapping = {
-            '.txt': 'note',
-            '.md': 'note',
-            '.pdf': 'pdf',
-            '.mp3': 'audio',
-            '.mp4': 'video',
-            '.docx': 'docx',
-            '.pptx': 'pptx',
-            }
-
-        
-        return type_mapping.get(ext, 'unknown')
+        ext = file_path.suffix.lower() if file_path.suffix else ""
+        return FileUtil.TYPE_MAPPING.get(ext, 'unknown')
     
     @staticmethod
     def is_supported_file(file_path: Path) -> bool:
@@ -161,14 +150,8 @@ class FileUtil:
         
         Returns:
             True if file extension is in SUPPORTED_EXTENSIONS
-        
-        Example:
-            >>> FileUtil.is_supported_file(Path("notes.pdf"))
-            True
-            >>> FileUtil.is_supported_file(Path("image.jpg"))
-            False
         """
-        ext = FileUtil.get_file_extension(file_path)
+        ext = file_path.suffix.lower() if file_path.suffix else ""
         return ext in FileUtil.SUPPORTED_EXTENSIONS
     
     @staticmethod
@@ -176,7 +159,7 @@ class FileUtil:
         """
         Get file metadata (size, modified time, etc.).
         
-        Helper method for extracting file information during import.
+        Optimized: Single stat() call, no redundant is_file() check
         
         Args:
             file_path: Path object of the file
@@ -185,16 +168,27 @@ class FileUtil:
             Dictionary with file stats
         """
         try:
-            stat = file_path.stat()
+            stat_info = file_path.stat()
             return {
-                'size_bytes': stat.st_size,
-                'modified_time': stat.st_mtime,
-                'is_readable': file_path.is_file(),
+                'size_bytes': stat_info.st_size,
+                'modified_time': stat_info.st_mtime,
+                'is_readable': stat_module.S_ISREG(stat_info.st_mode),  # No extra syscall
             }
-        except Exception as e:
-            logger.error(f"Cannot get stats for {file_path}: {e}")
+        except OSError as e:  # More specific exception
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Cannot get stats for {file_path}: {e}")
             return {
                 'size_bytes': 0,
                 'modified_time': 0,
                 'is_readable': False,
             }
+    
+    @staticmethod
+    def get_supported_extensions_list() -> List[str]:
+        """
+        Get supported extensions as list (for ImportService.get_import_stats())
+        
+        Returns:
+            List of supported extensions
+        """
+        return sorted(FileUtil.SUPPORTED_EXTENSIONS)

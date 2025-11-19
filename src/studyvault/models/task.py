@@ -7,13 +7,11 @@ Implements comparison for priority queue sorting (max-heap behavior).
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 from functools import total_ordering
+import logging
 from studyvault.utils.logger import get_logger
 
-
 logger = get_logger(__name__)
-
 
 @total_ordering
 @dataclass
@@ -45,17 +43,34 @@ class Task:
         """Validate fields after initialization."""
         self._validate_item_id()
         self._validate_priority()
+        self._validate_deadline()  
         self._validate_description()
         
-        logger.debug(f"Created Task: {self.item_id} - Priority {self.priority}")
+        # Conditional logging
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Created Task: {self.item_id} - Priority {self.priority}")
+    
+    def _validate_string_field(self, value: str, field_name: str) -> str:
+        """
+        NEW: Shared validation for string fields (DRY).
+        
+        Args:
+            value: String to validate
+            field_name: Field name for error messages
+        
+        Returns:
+            Stripped string
+        """
+        if not isinstance(value, str):
+            raise TypeError(f"{field_name} must be string, got {type(value)}")
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError(f"{field_name} cannot be empty")
+        return stripped
     
     def _validate_item_id(self) -> None:
         """Validate item_id is non-empty string."""
-        if not isinstance(self.item_id, str):
-            raise TypeError(f"item_id must be string, got {type(self.item_id)}")
-        if not self.item_id.strip():
-            raise ValueError("item_id cannot be empty")
-        self.item_id = self.item_id.strip()
+        self.item_id = self._validate_string_field(self.item_id, "item_id")
     
     def _validate_priority(self) -> None:
         """Validate priority is positive integer."""
@@ -64,91 +79,60 @@ class Task:
         if self.priority < 1:
             raise ValueError(f"priority must be >= 1, got {self.priority}")
     
+    def _validate_deadline(self) -> None:
+        """✅ NEW: Validate deadline is datetime."""
+        if not isinstance(self.deadline, datetime):
+            raise TypeError(f"deadline must be datetime, got {type(self.deadline)}")
+    
     def _validate_description(self) -> None:
         """Validate description is non-empty string."""
-        if not isinstance(self.description, str):
-            raise TypeError(f"description must be string, got {type(self.description)}")
-        if not self.description.strip():
-            raise ValueError("description cannot be empty")
-        self.description = self.description.strip()
+        self.description = self._validate_string_field(self.description, "description")
     
     def __lt__(self, other: 'Task') -> bool:
         """
         Less-than comparison for sorting (implements Comparable).
         
         Higher priority comes FIRST (max-heap behavior).
-        In Java: return Integer.compare(other.priority, this.priority)
-        In Python: self < other means self.priority > other.priority (reversed)
-        
-        Args:
-            other: Another Task to compare
-        
-        Returns:
-            True if self should come AFTER other in sorted order
         """
         if not isinstance(other, Task):
             return NotImplemented
-        
-        # Reverse comparison: higher priority = "less than" for max-heap
         return self.priority > other.priority
     
     def __eq__(self, other: object) -> bool:
-        """
-        Equality comparison.
-        
-        Args:
-            other: Another Task to compare
-        
-        Returns:
-            True if priorities are equal
-        """
+        """Equality comparison."""
         if not isinstance(other, Task):
             return NotImplemented
         return self.priority == other.priority
     
     def set_priority(self, value: int) -> None:
-        """
-        Update priority with validation.
-        
-        Args:
-            value: New priority value (must be >= 1)
-        """
+        """Update priority with validation."""
         if not isinstance(value, int):
             raise TypeError(f"priority must be int, got {type(value)}")
         if value < 1:
             raise ValueError(f"priority must be >= 1, got {value}")
         
-        old_priority = self.priority
         self.priority = value
-        logger.debug(f"Task {self.item_id}: Priority changed {old_priority} -> {value}")
+        # Conditional logging, removed old_priority variable
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Task {self.item_id}: Priority updated to {value}")
     
     def set_deadline(self, value: datetime) -> None:
-        """
-        Update deadline with validation.
-        
-        Args:
-            value: New deadline datetime
-        """
+        """Update deadline with validation."""
         if not isinstance(value, datetime):
             raise TypeError(f"deadline must be datetime, got {type(value)}")
         
         self.deadline = value
-        logger.debug(f"Task {self.item_id}: Deadline updated to {value.isoformat()}")
+        # Conditional logging, removed expensive isoformat()
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Task {self.item_id}: Deadline updated")
     
     def set_description(self, value: str) -> None:
-        """
-        Update description with validation.
+        """Update description with validation."""
+        # Use shared validation helper
+        self.description = self._validate_string_field(value, "description")
         
-        Args:
-            value: New description string
-        """
-        if not isinstance(value, str):
-            raise TypeError(f"description must be string, got {type(value)}")
-        if not value.strip():
-            raise ValueError("description cannot be empty")
-        
-        self.description = value.strip()
-        logger.debug(f"Task {self.item_id}: Description updated")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Task {self.item_id}: Description updated")
     
     def __str__(self) -> str:
         """String representation."""
@@ -162,12 +146,7 @@ class Task:
         )
     
     def to_dict(self) -> dict:
-        """
-        Convert to dictionary for serialization.
-        
-        Returns:
-            Dictionary representation of the task
-        """
+        """Convert to dictionary for serialization."""
         return {
             'item_id': self.item_id,
             'priority': self.priority,
@@ -177,15 +156,7 @@ class Task:
     
     @classmethod
     def from_dict(cls, data: dict) -> 'Task':
-        """
-        Create Task from dictionary (for deserialization).
-        
-        Args:
-            data: Dictionary with task data
-        
-        Returns:
-            New Task instance
-        """
+        """Create Task from dictionary (for deserialization)."""
         deadline = data['deadline']
         if isinstance(deadline, str):
             deadline = datetime.fromisoformat(deadline)
