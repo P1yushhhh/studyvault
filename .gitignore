@@ -31,3 +31,6 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+
+.csv
+.xlsx

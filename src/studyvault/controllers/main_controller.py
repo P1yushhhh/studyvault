@@ -1069,5 +1069,3 @@ class MainController:
                 data["file_path"] = file if file else None
     
             return data
-
-    

@@ -94,7 +94,7 @@ class Item:
             'rating': self.rating,
             'created_at': self.created_at.isoformat(),
             'file_path': self.file_path,
-            'url': self.url,          # ✅ New field
+            'url': self.url,         
         }
 
     @classmethod
