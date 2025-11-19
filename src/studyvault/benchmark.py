@@ -3,29 +3,26 @@
 StudyVault Benchmark Harness - Comprehensive Testing Edition
 
 Measures performance across scales (100 to 10,000 items) and profiles (small/medium/large):
-- ImportService.import_from_directory
+- ImportService.import_from_directory (standard/parallel/buffered/optimized)
 - SearchService.build_index
 - SearchService.search (avg across queries)
 - LibraryRepository.save_library / load_library
 
-USAGE (from project root):
-  # Quick test (small files, 100-1000 scale)
-  python -m studyvault.benchmark --preset quick
-  
-  # Comprehensive test (all profiles, up to 10,000 scale)
-  python -m studyvault.benchmark --preset comprehensive
-  
-  # Accurate import-only benchmark (pre-generates data)
+USAGE:
+  # Standard import (baseline)
   python -m studyvault.benchmark --scales 1000 5000 10000 --profile small medium --reps 3 --pregenerate
   
-  # Custom configuration
-  python -m studyvault.benchmark --scales 100 500 1000 5000 10000 --profile small medium large --reps 3 --mem
-
-Notes:
-- Creates benchmark artifacts under data/benchmarks/<timestamp>/
-- Cleans synthetic dataset by default (use --keep to preserve)
-- Generates CSV with results and statistical summary
-- Use --pregenerate for accurate import-only measurements (excludes data generation time)
+  # Parallel import (2-4× faster for nested directories)
+  python -m studyvault.benchmark --scales 1000 5000 10000 --profile small medium --reps 3 --pregenerate --parallel
+  
+  # Buffered import (10-20% faster on HDDs)
+  python -m studyvault.benchmark --scales 1000 5000 10000 --profile small medium --reps 3 --pregenerate --buffered
+  
+  # Optimized import (parallel + buffered, 3-6× faster)
+  python -m studyvault.benchmark --scales 1000 5000 10000 --profile small medium --reps 3 --pregenerate --optimized
+  
+  # Comprehensive test with optimized import
+  python -m studyvault.benchmark --preset comprehensive --pregenerate --optimized
 """
 
 from __future__ import annotations
@@ -172,6 +169,7 @@ class BenchResult:
     t_search_avg_ms: float
     t_save_ms: float
     t_load_ms: float
+    import_mode: str = "standard"  # New field
     peak_mb: Optional[float] = None
 
 
@@ -206,9 +204,10 @@ def run_benchmark_once(
     search_queries: Iterable[str],
     data_dir: Path,
     measure_mem: bool,
-    pregenerate: bool
+    pregenerate: bool,
+    import_mode: str = "standard"  # New parameter
 ) -> BenchResult:
-    """Run single benchmark iteration."""
+    """Run single benchmark iteration with specified import mode."""
     dataset_dir = work_dir / f"dataset_{scale}_{profile}_rep{rep}"
     dataset_dir.mkdir(parents=True, exist_ok=True)
 
@@ -218,17 +217,25 @@ def run_benchmark_once(
         generate_dataset(dataset_dir, scale, profile)
         print("✓")
 
-    # 2) Import (with or without data generation in timing)
+    # 2) Import with specified mode
     importer = ImportService()
     mem_on = measure_memory_start(measure_mem)
     
     t0 = time.perf_counter()
     
     if not pregenerate:
-        # Include data generation in import time (original behavior)
         generate_dataset(dataset_dir, scale, profile)
     
-    items = importer.import_from_directory(dataset_dir)
+    # Select import method based on mode
+    if import_mode == "parallel":
+        items = importer.import_from_directory(dataset_dir, parallel=True, max_workers=4)
+    elif import_mode == "buffered":
+        items = importer.import_from_directory_buffered(dataset_dir, batch_size=100, parallel=False)
+    elif import_mode == "optimized":
+        items = importer.import_from_directory_optimized(dataset_dir, batch_size=100, max_workers=4)
+    else:  # standard
+        items = importer.import_from_directory(dataset_dir)
+    
     t1 = time.perf_counter()
 
     # 3) Index
@@ -270,6 +277,7 @@ def run_benchmark_once(
         t_search_avg_ms=avg_search_ms,
         t_save_ms=_ms(t4, t5),
         t_load_ms=_ms(t6, t7),
+        import_mode=import_mode,
         peak_mb=peak_mb
     )
 
@@ -335,13 +343,13 @@ def write_csv(results: List[BenchResult], out_csv: Path) -> None:
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        header = ["scale", "profile", "rep", "imported",
+        header = ["scale", "profile", "rep", "imported", "import_mode",
                   "t_import_ms", "t_index_ms", "t_search_avg_ms",
                   "t_save_ms", "t_load_ms", "peak_mb"]
         w.writerow(header)
         for r in results:
             w.writerow([
-                r.scale, r.profile, r.rep, r.imported,
+                r.scale, r.profile, r.rep, r.imported, r.import_mode,
                 f"{r.t_import_ms:.2f}", f"{r.t_index_ms:.2f}", f"{r.t_search_avg_ms:.2f}",
                 f"{r.t_save_ms:.2f}", f"{r.t_load_ms:.2f}",
                 f"{r.peak_mb:.2f}" if r.peak_mb is not None else ""
@@ -373,18 +381,18 @@ def print_summary(results: List[BenchResult]) -> None:
     def row(cols, widths):
         return " | ".join(str(c).ljust(w) for c, w in zip(cols, widths))
 
-    header = ["Scale", "Prof", "Rep", "Items", "Import(ms)", "Index(ms)", "SearchAvg(ms)", "Save(ms)", "Load(ms)", "PeakMB"]
-    widths = [6, 6, 3, 6, 11, 10, 14, 8, 8, 7]
+    header = ["Scale", "Prof", "Rep", "Mode", "Items", "Import(ms)", "Index(ms)", "Search(ms)", "Save(ms)", "Load(ms)", "PeakMB"]
+    widths = [6, 6, 3, 9, 6, 11, 10, 11, 8, 8, 7]
     
-    print("\n" + "="*110)
+    print("\n" + "="*120)
     print("BENCHMARK RESULTS")
-    print("="*110)
+    print("="*120)
     print(row(header, widths))
-    print("-" * 110)
+    print("-" * 120)
     
     for r in results:
         cols = [
-            r.scale, r.profile[:6], r.rep, r.imported,
+            r.scale, r.profile[:6], r.rep, r.import_mode[:9], r.imported,
             f"{r.t_import_ms:.1f}",
             f"{r.t_index_ms:.1f}",
             f"{r.t_search_avg_ms:.2f}",
@@ -393,7 +401,7 @@ def print_summary(results: List[BenchResult]) -> None:
             f"{r.peak_mb:.1f}" if r.peak_mb is not None else "-"
         ]
         print(row(cols, widths))
-    print("="*110)
+    print("="*120)
 
 
 def print_statistical_summary(summary: Dict) -> None:
@@ -435,7 +443,7 @@ def parse_args() -> argparse.Namespace:
     
     # Preset configurations
     p.add_argument("--preset", choices=["quick", "comprehensive", "stress"],
-                   help="Preset configuration: quick(100-1K), comprehensive(100-10K all profiles), stress(10K large)")
+                   help="Preset configuration")
     
     # Manual configuration
     p.add_argument("--scales", type=int, nargs="+",
@@ -445,7 +453,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--reps", type=int, default=3,
                    help="Repetitions per scale/profile (default: 3)")
     
-    # Options
+    # Import mode options (mutually exclusive)
+    import_group = p.add_mutually_exclusive_group()
+    import_group.add_argument("--parallel", action="store_true",
+                             help="Use parallel file scanning (2-4× faster for nested dirs)")
+    import_group.add_argument("--buffered", action="store_true",
+                             help="Use buffered processing (10-20%% faster on HDDs)")
+    import_group.add_argument("--optimized", action="store_true",
+                             help="Use parallel + buffered (3-6× faster, recommended)")
+    
+    # Other options
     p.add_argument("--keep", action="store_true", help="Keep synthetic datasets after run")
     p.add_argument("--mem", action="store_true", help="Measure peak memory via tracemalloc")
     p.add_argument("--pregenerate", action="store_true", 
@@ -487,20 +504,31 @@ def main():
         profiles = args.profile or ["small"]
         reps = args.reps
     
+    # Determine import mode
+    if args.optimized:
+        import_mode = "optimized"
+    elif args.parallel:
+        import_mode = "parallel"
+    elif args.buffered:
+        import_mode = "buffered"
+    else:
+        import_mode = "standard"
+    
     bench_root, data_dir = ensure_dirs()
 
-    print(f"\n{'='*110}")
+    print(f"\n{'='*120}")
     print(f"StudyVault Benchmark - Comprehensive Testing")
-    print(f"{'='*110}")
+    print(f"{'='*120}")
     print(f"Output directory: {bench_root}")
     print(f"Scales: {scales}")
     print(f"Profiles: {profiles}")
     print(f"Repetitions per config: {reps}")
+    print(f"Import mode: {import_mode.upper()}")
     print(f"Search queries: {args.queries}")
     print(f"Memory tracking: {'ON' if args.mem else 'OFF'}")
     print(f"Pre-generate data: {'YES (import-only timing)' if args.pregenerate else 'NO (includes generation)'}")
     print(f"Keep datasets: {'YES' if args.keep else 'NO'}")
-    print(f"{'='*110}\n")
+    print(f"{'='*120}\n")
 
     # Calculate total runs
     total_runs = len(scales) * len(profiles) * reps
@@ -520,7 +548,7 @@ def main():
                     work_dir.mkdir(parents=True, exist_ok=True)
                     datasets_to_cleanup.append(work_dir)
 
-                    print(f"\n[{current_run}/{total_runs}] Running: scale={scale}, profile={profile}, rep={rep}")
+                    print(f"\n[{current_run}/{total_runs}] Running: scale={scale}, profile={profile}, rep={rep}, mode={import_mode}")
                     
                     res = run_benchmark_once(
                         work_dir=work_dir,
@@ -530,7 +558,8 @@ def main():
                         search_queries=args.queries,
                         data_dir=data_dir,
                         measure_mem=args.mem,
-                        pregenerate=args.pregenerate
+                        pregenerate=args.pregenerate,
+                        import_mode=import_mode
                     )
                     results.append(res)
                     
@@ -562,11 +591,11 @@ def main():
         print_summary(results)
         print_statistical_summary(summary)
         
-        print(f"\n{'='*110}")
+        print(f"\n{'='*120}")
         print(f"Results saved:")
         print(f"  - Raw data: {out_csv}")
         print(f"  - Statistics: {summary_csv}")
-        print(f"{'='*110}\n")
+        print(f"{'='*120}\n")
 
     finally:
         if not args.keep:

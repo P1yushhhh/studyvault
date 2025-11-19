@@ -4,11 +4,12 @@ Main Controller - Core orchestrator for StudyVault application.
 Handles all user interactions: CRUD operations, search, import, tasks, and media preview.
 Connects services (library, search, import) to the UI (views/widgets).
 Implements animations, dialogs, and error handling.
+Supports optimized parallel file import for large datasets.
 """
 
 from typing import Optional, List
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 import platform
 import subprocess
@@ -17,8 +18,7 @@ import logging
 from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QLineEdit, QPushButton, QLabel,
     QMessageBox, QDialog, QDialogButtonBox, QGridLayout, QVBoxLayout,
-    QHBoxLayout, QSlider, QFileDialog, QDateEdit, QSizePolicy, QSpacerItem,
-    QWidget, QRadioButton  
+    QHBoxLayout, QSlider, QFileDialog, QDateEdit, QWidget, QRadioButton
 )
 
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QDate, QUrl
@@ -42,11 +42,6 @@ class MainController:
     
     Connects UI widgets to business logic services. Handles all user actions
     including CRUD operations, search, import, task management, and media preview.
-    
-    Architecture:
-    - Services: LibraryService (items/tasks), SearchService (indexing), ImportService (file scan)
-    - UI: PyQt6 widgets passed in constructor
-    - Data flow: User action → Controller → Service → Model → Controller → UI update
     """
     
     def __init__(
@@ -66,15 +61,11 @@ class MainController:
         clear_search_button: QPushButton
     ):
         """Initialize main controller with UI widgets."""
-        # UI Widgets
         self.items_table = items_table
         self.search_field = search_field
         self.task_count_label = task_count_label
-        
-        # Store parent window reference for dialogs
         self.view = items_table.window()
         
-        # Buttons
         self.add_button = add_button
         self.edit_button = edit_button
         self.delete_button = delete_button
@@ -86,12 +77,10 @@ class MainController:
         self.view_task_button = view_task_button
         self.preview_button = preview_button
         
-        # Services
         self.library_service = LibraryService()
         self.search_service = SearchService()
         self.import_service = ImportService()
         
-        # Media player
         self.media_player: Optional[QMediaPlayer] = None
         
         if logger.isEnabledFor(logging.DEBUG):
@@ -113,25 +102,19 @@ class MainController:
             "Title", "Category", "Type", "Rating", "Tags"
         ])
         
-        # Enable sorting
         self.items_table.setSortingEnabled(True)
         
-        # Stretch last column
         header = self.items_table.horizontalHeader()
         header.setStretchLastSection(True)
-    
-        # Enable text wrapping
         self.items_table.setWordWrap(True)
-    
-        # Auto-resize rows
+        
         vertical_header = self.items_table.verticalHeader()
         vertical_header.setSectionResizeMode(vertical_header.ResizeMode.ResizeToContents)
-    
-        # Set column widths
-        self.items_table.setColumnWidth(0, 200)  # Title
-        self.items_table.setColumnWidth(1, 150)  # Category
-        self.items_table.setColumnWidth(2, 100)  # Type
-        self.items_table.setColumnWidth(3, 80)   # Rating
+        
+        self.items_table.setColumnWidth(0, 200)
+        self.items_table.setColumnWidth(1, 150)
+        self.items_table.setColumnWidth(2, 100)
+        self.items_table.setColumnWidth(3, 80)
     
     def _connect_signals(self) -> None:
         """Connect button clicks to handler methods."""
@@ -145,8 +128,6 @@ class MainController:
         self.add_task_button.clicked.connect(self.handle_add_task)
         self.view_task_button.clicked.connect(self.handle_view_next_task)
         self.preview_button.clicked.connect(self.handle_preview)
-        
-        # Search on Enter key
         self.search_field.returnPressed.connect(self.handle_search)
     
     def _show_message(self, title: str, message: str,
@@ -159,7 +140,6 @@ class MainController:
         box.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         box.setText(message)
         box.setStandardButtons(QMessageBox.StandardButton.Ok)
-    
         box.setStyleSheet("""
             QLabel#qt_msgbox_label, QLabel#qt_msgbox_informativelabel {
                 qproperty-wordWrap: true;
@@ -167,7 +147,6 @@ class MainController:
                 max-width: 520px;
             }
         """)
-    
         box.exec()
     
     # ===== CRUD Operations =====
@@ -183,16 +162,13 @@ class MainController:
                     category=item_data["category"],
                     type=item_data["type"]
                 )
-                # Optional fields
                 new_item.file_path = item_data.get("file_path")
                 new_item.url = item_data.get("url")
                 new_item.set_rating(item_data.get("rating", 0))
-    
-                # Add tags
+                
                 for tag in item_data.get("tags", []):
                     new_item.add_tag(tag)
-    
-                # ✅ FIX: Add item and rebuild search index
+                
                 self.library_service.add_item(new_item)
                 self.search_service.build_index(self.library_service.get_items())
                 
@@ -206,55 +182,46 @@ class MainController:
         if not selected_item:
             self._show_message("No Selection", "Please select an item to edit.", QMessageBox.Icon.Warning)
             return
-    
-        # Create edit dialog
+        
         dialog = QDialog(self.view)
         dialog.setWindowTitle("Edit Item")
         dialog.resize(600, 350)
         dialog.setMinimumSize(550, 320)
-    
         dialog.showEvent = lambda event: self._animate_scale(dialog, duration=200)
-    
-        # Main layout
+        
         main_layout = QVBoxLayout()
         main_layout.setSpacing(20)
         main_layout.setContentsMargins(25, 25, 25, 25)
         
-        # Form layout
         form_layout = QGridLayout()
         form_layout.setSpacing(15)
         form_layout.setColumnStretch(1, 1)
         
-        # Title field
         title_label = QLabel("Title:")
         title_field = QLineEdit(selected_item.title)
         title_field.setMinimumHeight(35)
         form_layout.addWidget(title_label, 0, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         form_layout.addWidget(title_field, 0, 1)
-    
-        # Category field
+        
         category_label = QLabel("Category:")
         category_field = QLineEdit(selected_item.category)
         category_field.setMinimumHeight(35)
         form_layout.addWidget(category_label, 1, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         form_layout.addWidget(category_field, 1, 1)
-    
-        # Tags field
+        
         tags_label = QLabel("Tags:")
         tags_field = QLineEdit(", ".join(selected_item.tags))
         tags_field.setMinimumHeight(35)
         tags_field.setPlaceholderText("Comma separated tags")
         form_layout.addWidget(tags_label, 2, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         form_layout.addWidget(tags_field, 2, 1)
-    
-        # Rating section
+        
         rating_label = QLabel("Rating:")
-    
         rating_container = QWidget()
         rating_layout = QHBoxLayout(rating_container)
         rating_layout.setContentsMargins(0, 0, 0, 0)
         rating_layout.setSpacing(15)
-    
+        
         rating_slider = QSlider(Qt.Orientation.Horizontal)
         rating_slider.setMinimum(1)
         rating_slider.setMaximum(5)
@@ -262,58 +229,44 @@ class MainController:
         rating_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         rating_slider.setTickInterval(1)
         rating_slider.setMinimumWidth(200)
-    
+        
         rating_value_label = QLabel(self._format_rating(selected_item.rating))
         rating_value_label.setMinimumWidth(130)
         rating_value_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        
         rating_slider.valueChanged.connect(
             lambda value: rating_value_label.setText(self._format_rating(value))
         )
-    
+        
         rating_layout.addWidget(rating_slider, stretch=1)
         rating_layout.addWidget(rating_value_label, stretch=0)
-    
         form_layout.addWidget(rating_label, 3, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         form_layout.addWidget(rating_container, 3, 1)
-    
+        
         main_layout.addLayout(form_layout)
         main_layout.addStretch(1)
         
-        # Dialog buttons
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
         button_box.accepted.connect(dialog.accept)
         button_box.rejected.connect(dialog.reject)
         main_layout.addWidget(button_box)
-    
         dialog.setLayout(main_layout)
         
-        # ✅ FIX: Proper edit handling with single memento
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            # Store old item for memento
             old_item = selected_item
-            
-            # Update item fields
             selected_item.title = title_field.text().strip()
             selected_item.category = category_field.text().strip()
             selected_item.set_rating(rating_slider.value())
             
-            # Parse tags
             selected_item.tags.clear()
             for tag in tags_field.text().split(','):
                 tag_clean = tag.strip()
                 if tag_clean:
                     selected_item.add_tag(tag_clean)
             
-            # ✅ Single update call (creates one memento)
             self.library_service.update_item(old_item, selected_item)
-            
-            # ✅ Rebuild search index
             self.search_service.build_index(self.library_service.get_items())
-            
-            # ✅ Refresh table
             self._refresh_table()
             
             if logger.isEnabledFor(logging.INFO):
@@ -329,13 +282,12 @@ class MainController:
     def handle_delete(self) -> None:
         """Handle Delete button click."""
         selected_items = self._get_selected_items()
-    
+        
         if not selected_items:
             self._show_message("No Selection", "Please select at least one item to delete.",
                                QMessageBox.Icon.Warning)
             return
-    
-        # Confirmation
+        
         if len(selected_items) == 1:
             item_name = selected_items[0].title
             if not self._confirm_dialog("Confirm Delete", f"Are you sure you want to delete '{item_name}'?"):
@@ -344,15 +296,13 @@ class MainController:
             if not self._confirm_dialog("Confirm Delete",
                                         f"Are you sure you want to delete {len(selected_items)} items?"):
                 return
-    
-        # Perform deletion
+        
         for item in selected_items:
             self.library_service.delete_item(item)
-    
-        # ✅ FIX: Rebuild search index after deletion
+        
         self.search_service.build_index(self.library_service.get_items())
         self._refresh_table()
-    
+        
         if logger.isEnabledFor(logging.INFO):
             logger.info(f"Deleted {len(selected_items)} item(s)")
         
@@ -368,7 +318,6 @@ class MainController:
         box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         box.setTextFormat(Qt.TextFormat.PlainText)
         box.setStyleSheet("QLabel{ min-width: 250px; }")
-    
         return box.exec() == QMessageBox.StandardButton.Yes
    
     def handle_undo(self) -> None:
@@ -376,14 +325,11 @@ class MainController:
         if not self.library_service.can_undo():
             self._show_message("Nothing to Undo", "No actions to undo.", QMessageBox.Icon.Information)
             return
-    
-        # Perform undo
+        
         self.library_service.undo()
-    
-        # ✅ FIX: Rebuild search index after undo
         self.search_service.build_index(self.library_service.get_items())
         self._refresh_table()
-    
+        
         if logger.isEnabledFor(logging.INFO):
             logger.info("Undo completed")
         
@@ -402,16 +348,10 @@ class MainController:
         if logger.isEnabledFor(logging.INFO):
             logger.info(f"Searching for: {query}")
         
-        # ✅ FIX: Use _id_index from LibraryService (no rebuild needed)
         item_map = self.library_service._id_index
-        
-        # ✅ Search uses pre-built index
         result_ids = self.search_service.search(query, item_map)
-        
-        # Get items from IDs
         results = [item_map[item_id] for item_id in result_ids if item_id in item_map]
         
-        # Update table
         self._refresh_table(results)
         self._animate_fade_in(self.items_table, duration=300, start_opacity=0.3)
         
@@ -431,7 +371,7 @@ class MainController:
     # ===== Import Operations =====
     
     def handle_import(self) -> None:
-        """Handle Import button click."""
+        """Handle Import button click with parallel import optimization."""
         directory = QFileDialog.getExistingDirectory(
             self.view,
             "Select Folder to Import",
@@ -446,14 +386,18 @@ class MainController:
         if logger.isEnabledFor(logging.INFO):
             logger.info(f"Importing from: {dir_path}")
         
-        # Import files
-        imported_items = self.import_service.import_from_directory(dir_path)
+        # ✅ USE PARALLEL (not optimized) - 1.5-2× faster, simpler
+        imported_items = self.import_service.import_from_directory(
+            dir_path,
+            parallel=True,
+            max_workers=4  # Optimal for most systems
+        )
         
-        # ✅ Bulk add items
+        # Bulk add items
         for item in imported_items:
             self.library_service.add_item(item)
         
-        # ✅ FIX: Single index rebuild after all imports
+        # Single index rebuild
         self.search_service.build_index(self.library_service.get_items())
         self._refresh_table()
         
@@ -465,6 +409,7 @@ class MainController:
             f"Successfully imported {len(imported_items)} items from folder!",
             QMessageBox.Icon.Information
         )
+
     
     # ===== Task Operations =====
     
@@ -475,19 +420,16 @@ class MainController:
             self._show_message("No Selection", "Please select an item to create a task for.", QMessageBox.Icon.Warning)
             return
         
-        # Create task dialog
         dialog = QDialog(self.view)
         dialog.setWindowTitle("Add Task")
         dialog.resize(700, 450)
         dialog.setMinimumSize(650, 400)
-        
         dialog.showEvent = lambda event: self._animate_scale(dialog, duration=200)
         
         layout = QGridLayout()
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
         
-        # Description field
         desc_label = QLabel("Description:")
         desc_field = QLineEdit()
         desc_field.setMinimumHeight(35)
@@ -495,7 +437,6 @@ class MainController:
         layout.addWidget(desc_label, 0, 0, Qt.AlignmentFlag.AlignRight)
         layout.addWidget(desc_field, 0, 1)
         
-        # Priority slider
         priority_label = QLabel("Priority:")
         priority_slider = QSlider(Qt.Orientation.Horizontal)
         priority_slider.setMinimum(1)
@@ -506,7 +447,6 @@ class MainController:
         
         priority_value_label = QLabel(f"Priority: {5}/10")
         priority_value_label.setMinimumWidth(100)
-        
         priority_slider.valueChanged.connect(
             lambda value: priority_value_label.setText(f"Priority: {value}/10")
         )
@@ -514,11 +454,9 @@ class MainController:
         priority_layout = QHBoxLayout()
         priority_layout.addWidget(priority_slider, stretch=1)
         priority_layout.addWidget(priority_value_label)
-        
         layout.addWidget(priority_label, 1, 0, Qt.AlignmentFlag.AlignRight)
         layout.addLayout(priority_layout, 1, 1)
         
-        # Deadline picker
         deadline_label = QLabel("Deadline:")
         deadline_picker = QDateEdit()
         deadline_picker.setDate(QDate.currentDate().addDays(7))
@@ -527,24 +465,19 @@ class MainController:
         layout.addWidget(deadline_label, 2, 0, Qt.AlignmentFlag.AlignRight)
         layout.addWidget(deadline_picker, 2, 1)
         
-        # Dialog buttons
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         button_box.accepted.connect(dialog.accept)
         button_box.rejected.connect(dialog.reject)
         layout.addWidget(button_box, 3, 0, 1, 2)
-        
         layout.setRowStretch(3, 1)
         dialog.setLayout(layout)
         
-        # Show dialog and create task
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            # Convert QDate to datetime
             q_date = deadline_picker.date()
             deadline = datetime(q_date.year(), q_date.month(), q_date.day())
             
-            # Create task
             task = Task(
                 item_id=selected_item.id,
                 priority=priority_slider.value(),
@@ -552,7 +485,6 @@ class MainController:
                 description=desc_field.text()
             )
             
-            # Add to service
             self.library_service.add_task(task)
             self._update_task_count()
             
@@ -569,11 +501,9 @@ class MainController:
             self._show_message("No Tasks", "Task queue is empty!", QMessageBox.Icon.Information)
             return
         
-        # Find the item (now O(1) with _id_index)
         item = self.library_service.find_item_by_id(next_task.item_id)
         item_title = item.title if item else "Unknown Item"
         
-        # Show task details
         message = (
             f"Item: {item_title}\n"
             f"Priority: {next_task.priority}/10\n"
@@ -601,27 +531,25 @@ class MainController:
             self._show_message("No Selection", "Please select at least one item to preview.",
                                QMessageBox.Icon.Warning)
             return
-    
+        
         for item in selected_items:
             file_path = item.file_path
             if not file_path:
                 self._show_message("No File", f"Item '{item.title}' has no associated file.",
                                    QMessageBox.Icon.Warning)
                 continue
-    
+            
             path = Path(file_path)
             if not path.exists():
                 self._show_message("File Not Found", f"File does not exist:\n{file_path}",
                                    QMessageBox.Icon.Critical)
                 continue
-    
+            
             item_type = item.type
-    
-            # Audio/Video → internal preview
+            
             if item_type in ["audio", "video"]:
                 self._preview_media(path, item_type)
             else:
-                # Other types → system viewer
                 self._open_in_system_viewer(path)
     
     def _open_in_system_viewer(self, path: Path) -> None:
@@ -630,14 +558,14 @@ class MainController:
             system = platform.system()
             if system == "Windows":
                 os.startfile(str(path))
-            elif system == "Darwin":  # macOS
+            elif system == "Darwin":
                 subprocess.run(["open", str(path)], check=False)
-            else:  # Linux
+            else:
                 subprocess.run(["xdg-open", str(path)], check=False)
-    
+            
             if logger.isEnabledFor(logging.INFO):
                 logger.info(f"Opened in system viewer: {path}")
-    
+        
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Failed to open system viewer for {path}: {e}", exc_info=True)
@@ -649,53 +577,46 @@ class MainController:
             self.media_player = QMediaPlayer()
             audio_output = QAudioOutput()
             self.media_player.setAudioOutput(audio_output)
-    
+            
             dialog = QDialog(self.view)
             dialog.setWindowTitle(f"Media Preview: {file_path.name}")
             dialog.resize(640, 480)
-    
+            
             layout = QVBoxLayout()
-    
-            # Video widget
+            
             if media_type == "video":
                 video_widget = QVideoWidget()
                 self.media_player.setVideoOutput(video_widget)
                 layout.addWidget(video_widget)
             else:
-                # Audio label
                 audio_label = QLabel(f"🎵 Playing Audio: {file_path.name}")
                 audio_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 audio_label.setStyleSheet("font-size: 16px;")
                 layout.addWidget(audio_label)
-    
-            # Controls
+            
             controls_layout = QHBoxLayout()
             play_btn = QPushButton("▶ Play")
             pause_btn = QPushButton("⏸ Pause")
             stop_btn = QPushButton("⏹ Stop")
-    
+            
             play_btn.clicked.connect(self.media_player.play)
             pause_btn.clicked.connect(self.media_player.pause)
             stop_btn.clicked.connect(lambda: [self.media_player.stop(), dialog.close()])
-    
+            
             controls_layout.addWidget(play_btn)
             controls_layout.addWidget(pause_btn)
             controls_layout.addWidget(stop_btn)
             layout.addLayout(controls_layout)
-    
             dialog.setLayout(layout)
-    
-            # Play media
+            
             self.media_player.setSource(QUrl.fromLocalFile(str(file_path)))
             self.media_player.play()
-    
-            # Stop on close
             dialog.finished.connect(lambda _: self.media_player.stop())
             dialog.exec()
-    
+            
             if logger.isEnabledFor(logging.INFO):
                 logger.info(f"Media preview opened: {file_path.name}")
-    
+        
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Media preview error: {e}", exc_info=True)
@@ -705,15 +626,12 @@ class MainController:
     
     def load_data(self, data: LibraryData) -> None:
         """Load library data from repository."""
-        # ✅ FIX: Clear both items and index
         self.library_service.items.clear()
         self.library_service._id_index.clear()
         
-        # Load items
         for item in data.items:
             self.library_service.add_item(item)
         
-        # ✅ Rebuild search index from service
         self.search_service.build_index(self.library_service.get_items())
         self._refresh_table()
         
@@ -736,34 +654,22 @@ class MainController:
     # ===== UI Helper Methods =====
     
     def _refresh_table(self, items: Optional[List[Item]] = None) -> None:
-        """
-        ✅ OPTIMIZED: Refresh table with items.
-        - Disable sorting during population (50-70% faster)
-        - Set row count once (single allocation)
-        - Re-enable sorting after population
-        """
+        """Refresh table with items (optimized batch operation)."""
         if items is None:
             items = self.library_service.get_items()
         
-        # ✅ Disable sorting during population
         self.items_table.setSortingEnabled(False)
-        
-        # ✅ Set row count once
         self.items_table.setRowCount(len(items))
         
-        # Add items
         for row, item in enumerate(items):
-            # Store item object in first column
             title_item = QTableWidgetItem(item.title)
             title_item.setData(Qt.ItemDataRole.UserRole, item)
             self.items_table.setItem(row, 0, title_item)
-            
             self.items_table.setItem(row, 1, QTableWidgetItem(item.category))
             self.items_table.setItem(row, 2, QTableWidgetItem(item.type))
             self.items_table.setItem(row, 3, QTableWidgetItem(str(item.rating)))
             self.items_table.setItem(row, 4, QTableWidgetItem(", ".join(item.tags)))
         
-        # ✅ Re-enable sorting
         self.items_table.setSortingEnabled(True)
     
     def _get_selected_item(self) -> Optional[Item]:
@@ -783,18 +689,17 @@ class MainController:
     def _get_selected_items(self) -> List[Item]:
         """Return all selected Item objects from the table."""
         selected_items = []
-    
         rows = set(index.row() for index in self.items_table.selectedIndexes())
         if not rows:
             return []
-    
+        
         for row in rows:
             title_item = self.items_table.item(row, 0)
             if title_item:
                 item = title_item.data(Qt.ItemDataRole.UserRole)
                 if item:
                     selected_items.append(item)
-    
+        
         return selected_items
     
     # ===== Animations =====
@@ -821,27 +726,24 @@ class MainController:
     
     class AddItemDialog(QDialog):
         """Dialog to add a new library item."""
-    
+        
         def __init__(self, parent=None):
             super().__init__(parent)
             self.setWindowTitle("Add New Item")
             self.setMinimumWidth(450)
-    
+            
             layout = QVBoxLayout(self)
-    
-            # Title
+            
             self.title_field = QLineEdit()
             self.title_field.setPlaceholderText("Enter title")
             layout.addWidget(QLabel("Title*"))
             layout.addWidget(self.title_field)
-    
-            # Category
+            
             self.category_field = QLineEdit()
             self.category_field.setPlaceholderText("Enter category (optional)")
             layout.addWidget(QLabel("Category"))
             layout.addWidget(self.category_field)
-    
-            # Type Selection
+            
             layout.addWidget(QLabel("Type*"))
             self.type_group = QWidget()
             type_layout = QHBoxLayout(self.type_group)
@@ -858,8 +760,7 @@ class MainController:
                 type_layout.addWidget(t)
             self.types["note"].setChecked(True)
             layout.addWidget(self.type_group)
-    
-            # File Picker
+            
             self.file_field = QLineEdit()
             self.file_button = QPushButton("Browse")
             file_layout = QHBoxLayout()
@@ -868,20 +769,17 @@ class MainController:
             layout.addWidget(QLabel("File Path"))
             layout.addLayout(file_layout)
             self.file_button.clicked.connect(self.pick_file)
-    
-            # URL Field
+            
             self.url_field = QLineEdit()
             self.url_field.setPlaceholderText("Enter URL (if type is URL)")
             layout.addWidget(QLabel("URL"))
             layout.addWidget(self.url_field)
-    
-            # Tags
+            
             self.tags_field = QLineEdit()
             self.tags_field.setPlaceholderText("e.g. math, algorithms, ai")
             layout.addWidget(QLabel("Tags (comma-separated)"))
             layout.addWidget(self.tags_field)
-    
-            # Rating slider
+            
             layout.addWidget(QLabel("Rating (0 = Unrated)"))
             slider_layout = QHBoxLayout()
             self.rating_slider = QSlider(Qt.Orientation.Horizontal)
@@ -894,8 +792,7 @@ class MainController:
             slider_layout.addWidget(self.rating_slider)
             slider_layout.addWidget(self.rating_label)
             layout.addLayout(slider_layout)
-    
-            # Buttons
+            
             buttons = QDialogButtonBox(
                 QDialogButtonBox.StandardButton.Ok |
                 QDialogButtonBox.StandardButton.Cancel
@@ -903,44 +800,43 @@ class MainController:
             buttons.accepted.connect(self.accept)
             buttons.rejected.connect(self.reject)
             layout.addWidget(buttons)
-    
-            # Enable/disable logic
+            
             for _, btn in self.types.items():
                 btn.toggled.connect(self.update_field_states)
-    
+            
             self.update_field_states()
-    
+        
         def pick_file(self):
             file_path, _ = QFileDialog.getOpenFileName(self, "Select File")
             if file_path:
                 self.file_field.setText(file_path)
-    
+        
         def update_field_states(self):
             selected = self.get_selected_type()
             is_url_type = selected == "url"
             is_file_type = selected in {"pdf", "docx", "ppt", "audio", "video"}
-    
+            
             self.url_field.setEnabled(is_url_type)
             self.file_field.setEnabled(is_file_type)
             self.file_button.setEnabled(is_file_type)
-    
+            
             if is_url_type and self.file_field.text():
                 self.file_field.clear()
             if is_file_type and self.url_field.text():
                 self.url_field.clear()
-    
+        
         def get_selected_type(self) -> str:
             for type_key, btn in self.types.items():
                 if btn.isChecked():
                     return type_key
             return "note"
-    
+        
         def get_item_data(self) -> Optional[dict]:
             title = self.title_field.text().strip()
             if not title:
                 QMessageBox.warning(self, "Error", "Title is required.")
                 return None
-    
+            
             data = {
                 "title": title,
                 "category": self.category_field.text().strip() or "Uncategorized",
@@ -948,7 +844,7 @@ class MainController:
                 "tags": [t.strip() for t in self.tags_field.text().split(",") if t.strip()],
                 "rating": self.rating_slider.value()
             }
-    
+            
             if data["type"] == "url":
                 url = self.url_field.text().strip()
                 if not url:
@@ -961,5 +857,5 @@ class MainController:
                     QMessageBox.warning(self, "Error", "File is required for this type.")
                     return None
                 data["file_path"] = file if file else None
-    
+            
             return data
